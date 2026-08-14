@@ -80,7 +80,7 @@ DEFAULT_CONFIG = {
   "chat_id_4h": null,
   "chat_id_1d": null,
   "chat_id_15m": null
-
+}
 }
 
 def save_config(cfg: dict):
