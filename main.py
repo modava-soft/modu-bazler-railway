@@ -764,7 +764,7 @@ if __name__ == "__main__":
 
     while True:
         time.sleep(60)
-```chat_id_15m')}\n"
+text += f"chat_id_15m: {cfg.get('chat_id_15m')} \n"
         text += f"تعداد آخرین آلارم‌ها: {len(LAST_ALARMS)}\n"
         bot_1h.send_message(m.chat.id, text)
 
