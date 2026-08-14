@@ -15,7 +15,7 @@ from telebot import types
 # =========================
 # مسیرها و تنظیمات پایه
 # =========================
-
+text = ""
 BASE_DIR   = os.path.abspath(os.path.dirname(__file__))
 DATA_DIR   = os.path.join(BASE_DIR, "data")
 CHARTS_DIR = os.path.join(DATA_DIR, "charts")
