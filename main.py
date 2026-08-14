@@ -222,7 +222,7 @@ if bot_4h:
         bot_4h.send_message(m.chat.id, f"ربات ۴ساعته فعال شد.\n# {now_utc_str()} UTC")
 
 if bot_1d:
-    @bot_1d.message_handler(commands=["start"])
+   @bot_1d.message_handler(commands=["start"])
     def start_1d(m):
         cfg = load_config()
         cfg["chat_id_1d"] = m.chat.id
@@ -236,6 +236,58 @@ if bot_15m:
         cfg["chat_id_15m"] = m.chat.id
         save_config(cfg)
         bot_15m.send_message(m.chat.id, f"ربات ۱۵دقیقه‌ای فعال شد.\n# {now_utc_str()} UTC")
+
+def refresh_menu_if_needed(bot, chat_id):
+    try:
+        send_main_menu(bot, chat_id)
+    except:
+        pass
+@bot_1h.message_handler(commands=["start"])
+def start_1h(m):
+    cfg = load_config()
+    cfg["chat_id_1h"] = m.chat.id
+    save_config(cfg)
+
+    bot_1h.send_message(m.chat.id, HELP_TEXT)
+
+    refresh_menu_if_needed(bot_1h, m.chat.id)
+
+@bot_1h.message_handler(commands=["toggle_wma_dir"])
+def toggle_wma_dir(m):
+    cfg = load_config()
+    cfg["alarm_wma_direction"] = not cfg["alarm_wma_direction"]
+    save_config(cfg)
+
+    bot_1h.send_message(m.chat.id, f"alarm_wma_direction = {cfg['alarm_wma_direction']}")
+
+    refresh_menu_if_needed(bot_1h, m.chat.id)
+
+@bot_1h.message_handler(func=lambda m: m.text == "بازنشانی نمادها")
+def reset_symbols(m):
+    cfg = load_config()
+    cfg["hourly_symbols"] = DEFAULT_CONFIG["hourly_symbols"]
+    cfg["fourh_symbols"]  = DEFAULT_CONFIG["fourh_symbols"]
+    cfg["daily_symbols"]  = DEFAULT_CONFIG["daily_symbols"]
+    cfg["fifteenm_symbols"] = DEFAULT_CONFIG["fifteenm_symbols"]
+    save_config(cfg)
+
+    bot_1h.send_message(m.chat.id, "نمادها ریست شدند.")
+
+    refresh_menu_if_needed(bot_1h, m.chat.id)
+
+@bot_1h.message_handler(func=lambda m: m.text == "اجرای دستی 1h")
+def manual_1h(m):
+    cfg = load_config()
+    cfg["chat_id_1h"] = m.chat.id
+    save_config(cfg)
+
+    run_cycle("1h", bot_1h, m.chat.id,
+              cfg["hourly_symbols"], "1h",
+              cfg["hourly_lookback_days"], cfg["max_bars"])
+
+    refresh_menu_if_needed(bot_1h, m.chat.id)
+
+
 
 # =========================
 # SYMBOL CHECK (1h)
