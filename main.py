@@ -74,6 +74,9 @@ DEFAULT_CONFIG = {
     "chat_id_15m": None
 }
 
+cfg = load_config()
+text = ""
+
 def save_config(cfg):
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(cfg, f, ensure_ascii=False, indent=2)
