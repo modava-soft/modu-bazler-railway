@@ -733,10 +733,28 @@ def loop_15m():
     while True:
         cfg = load_config()
         now = dt.datetime.now()
+
         if now.minute % 15 == 0 and bot_15m and cfg.get("chat_id_15m"):
-            run_cycle("15m", bot_15m, cfg["chat_id_15m"], cfg["fifteenm_symbols"], "15m", cfg["fifteenm_lookback_days"], cfg["max_bars"])
+            symbols = cfg["fifteenm_symbols"]
+
+            if isinstance(symbols, str):
+                symbols = [symbols]
+
+            run_cycle(
+                "15m",
+                bot_15m,
+                cfg["chat_id_15m"],
+                symbols,
+                "15m",
+                cfg["fifteenm_lookback_days"],
+                cfg["max_bars"]
+            )
+
             time.sleep(60)
+
         time.sleep(20)
+
+cfg=""
 
 # =========================⁸
 # MAIN
