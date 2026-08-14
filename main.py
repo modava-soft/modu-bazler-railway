@@ -69,7 +69,7 @@ DEFAULT_CONFIG = {
     "alarm_sma20_direction": True,
     "alarm_sma100_direction": True,
     "alarm_sma200_direction": True,
-    "make_pdf": True,
+    "make_pdf": False,
     "chat_id_1h": None,
     "chat_id_4h": None,
     "chat_id_1d": None,
