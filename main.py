@@ -74,8 +74,6 @@ DEFAULT_CONFIG = {
     "chat_id_15m": None
 }
 
-cfg = load_config()
-text = ""
 
 def save_config(cfg):
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
@@ -87,6 +85,8 @@ def load_config():
         return DEFAULT_CONFIG.copy()
     with open(CONFIG_PATH, "r", encoding="utf-8") as f:
         return json.load(f)
+
+cfg = load_config()
 
 def now_utc():
     return dt.datetime.now(dt.timezone.utc)
