@@ -2,7 +2,7 @@
 numpy
 pandas
 matplotlib
-plotly
 pyTelegramBotAPI
 telebot
-kaleido
+plotly==5.14.1
+kaleido==0.2.1
