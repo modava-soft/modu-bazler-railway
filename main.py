@@ -70,10 +70,10 @@ DEFAULT_CONFIG = {
     "alarm_sma100_direction": True,
     "alarm_sma200_direction": True,
     "make_pdf": True,
-    "chat_id_1h": null,
-    "chat_id_4h": null,
-    "chat_id_1d": null,
-    "chat_id_15m": null
+    "chat_id_1h": None,
+    "chat_id_4h": None,
+    "chat_id_1d": None,
+    "chat_id_15m": None
 }
 
 def save_config(cfg: dict):
