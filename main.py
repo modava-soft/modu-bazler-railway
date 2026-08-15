@@ -199,6 +199,77 @@ if bot_15m:
         save_config(cfg)
         bot_15m.send_message(m.chat.id, "ربات ۱۵دقیقه‌ای فعال شد.\n" + now_utc_str())
 
+
+
+# =========================
+# هندلرهای دکمه‌های منو (ربات 1h)
+# =========================
+
+if bot_1h:
+
+    @bot_1h.message_handler(func=lambda m: m.text == "چک یک نماد")
+    def check_symbol(m):
+        bot_1h.send_message(m.chat.id, "نماد مورد نظر را وارد کنید (مثلاً BTCUSDT):")
+
+    @bot_1h.message_handler(func=lambda m: m.text == "اجرای دستی 1h")
+    def manual_1h(m):
+        cfg = load_config()
+        run_cycle(
+            "1h",
+            bot_1h,
+            cfg["chat_id_1h"],
+            cfg["hourly_symbols"],
+            "1h",
+            cfg["hourly_lookback_days"],
+            cfg["max_bars"]
+        )
+
+    @bot_1h.message_handler(func=lambda m: m.text == "تنظیم آلارم‌ها")
+    def alarms_menu(m):
+        bot_1h.send_message(m.chat.id, "تنظیم آلارم‌ها هنوز فعال نشده است.")
+
+    @bot_1h.message_handler(func=lambda m: m.text == "بازنشانی نمادها")
+    def reset_symbols(m):
+        cfg = load_config()
+        cfg["hourly_symbols"] = DEFAULT_CONFIG["hourly_symbols"]
+        save_config(cfg)
+        bot_1h.send_message(m.chat.id, "نمادها بازنشانی شدند.")
+
+    @bot_1h.message_handler(func=lambda m: m.text == "راهنما")
+    def help_menu(m):
+        bot_1h.send_message(m.chat.id, HELP_TEXT)
+
+    @bot_1h.message_handler(func=lambda m: m.text == "رفرش منو")
+    def refresh_menu_btn(m):
+        refresh_menu(bot_1h, m.chat.id)
+
+    @bot_1h.message_handler(func=lambda m: m.text == "شروع چرخه‌ها")
+    def start_cycles(m):
+        bot_1h.send_message(m.chat.id, "چرخه‌ها به‌صورت خودکار اجرا می‌شوند.")
+
+    @bot_1h.message_handler(func=lambda m: m.text == "وضعیت سیستم")
+    def system_status(m):
+        bot_1h.send_message(m.chat.id, "سیستم فعال است.\n" + now_utc_str())
+
+    @bot_1h.message_handler(func=lambda m: m.text == "گزارش آلارم‌ها")
+    def alarms_report(m):
+        if not LAST_ALARMS:
+            bot_1h.send_message(m.chat.id, "هیچ آلارمی ثبت نشده است.")
+            return
+
+        txt = "آخرین آلارم‌ها:\n\n"
+        for item in LAST_ALARMS[-20:]:
+            txt += f"{item['symbol']} ({item['interval']}):\n"
+            for a in item["alarms"]:
+                txt += f" - {a}\n"
+            txt += "\n"
+
+        bot_1h.send_message(m.chat.id, txt)
+
+    @bot_1h.message_handler(func=lambda m: m.text == "تنظیمات پیشرفته")
+    def advanced_settings(m):
+        bot_1h.send_message(m.chat.id, "این بخش هنوز فعال نشده است.")
+
 # =========================
 # بخش ۳ — دریافت دیتا، اندیکاتورها، نمودارها
 # =========================
