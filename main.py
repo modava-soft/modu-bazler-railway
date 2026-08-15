@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Modu Bazler – main.py (بخش ۱: تنظیمات، مسیرها، کانفیگ، ساخت ربات‌ها)
+# Modu Bazler – main.py (نسخهٔ جدید با منطق آلارم و ارسال فقط ارزهای دارای آلارم)
 
 import os, json, time, threading, datetime as dt
 import requests, numpy as np, pandas as pd
@@ -69,7 +69,7 @@ DEFAULT_CONFIG = {
     "alarm_sma20_direction": True,
     "alarm_sma100_direction": True,
     "alarm_sma200_direction": True,
-    "make_pdf": False,
+    "make_pdf": True,
     "chat_id_1h": None,
     "chat_id_4h": None,
     "chat_id_1d": None,
@@ -123,7 +123,7 @@ bot_15m = create_bot(TOKEN_15M)
 # =========================
 
 HELP_TEXT = """
-Modu Bazler – نسخه پیشرفته
+Modu Bazler – نسخه جدید با سیستم آلارم پیشرفته
 
 دستورات:
 /start – ثبت چت و نمایش منو
@@ -199,7 +199,6 @@ if bot_15m:
         save_config(cfg)
         bot_15m.send_message(m.chat.id, "ربات ۱۵دقیقه‌ای فعال شد.\n" + now_utc_str())
 
-
 # =========================
 # بخش ۳ — دریافت دیتا، اندیکاتورها، نمودارها
 # =========================
@@ -212,6 +211,7 @@ def _kucoin_interval(i: str) -> str:
 
 def fetch_ohlc(symbol: str, interval: str, lookback_days: int, max_bars: int) -> pd.DataFrame:
     limit = max(200, max_bars)
+
     # Binance
     try:
         url = "https://api.binance.com/api/v3/klines"
@@ -300,6 +300,7 @@ def create_plotly_chart(
     png_name: str,
     html_name: str
 ) -> dict:
+
     df = fetch_ohlc(symbol, interval, lookback_days, max_bars)
     if df.empty:
         df = pd.DataFrame(columns=["o","h","l","c","v"])
@@ -329,30 +330,9 @@ def create_plotly_chart(
     )
 
     # SMA
-    fig.add_trace(
-        go.Scatter(
-            x=df.index, y=df["SMA20"],
-            mode="lines", name="SMA20",
-            line=dict(color="blue")
-        ),
-        row=1, col=1
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=df.index, y=df["SMA100"],
-            mode="lines", name="SMA100",
-            line=dict(color="orange")
-        ),
-        row=1, col=1
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=df.index, y=df["SMA200"],
-            mode="lines", name="SMA200",
-            line=dict(color="purple")
-        ),
-        row=1, col=1
-    )
+    fig.add_trace(go.Scatter(x=df.index, y=df["SMA20"],  mode="lines", name="SMA20",  line=dict(color="blue")),   row=1, col=1)
+    fig.add_trace(go.Scatter(x=df.index, y=df["SMA100"], mode="lines", name="SMA100", line=dict(color="orange")), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df.index, y=df["SMA200"], mode="lines", name="SMA200", line=dict(color="purple")), row=1, col=1)
 
     # WMA20 با رنگ شیب
     wma   = df["WMA20"]
@@ -360,65 +340,33 @@ def create_plotly_chart(
     wma_up   = wma.where(slope >= 0)
     wma_down = wma.where(slope < 0)
 
-    fig.add_trace(
-        go.Scatter(
-            x=df.index, y=wma_up,
-            mode="lines", name="WMA20 Up",
-            line=dict(color="green", width=2, dash="dot")
-        ),
-        row=1, col=1
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=df.index, y=wma_down,
-            mode="lines", name="WMA20 Down",
-            line=dict(color="red", width=2, dash="dot")
-        ),
-        row=1, col=1
-    )
+    fig.add_trace(go.Scatter(x=df.index, y=wma_up,   mode="lines", name="WMA20 Up",   line=dict(color="green", width=2, dash="dot")), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df.index, y=wma_down, mode="lines", name="WMA20 Down", line=dict(color="red",   width=2, dash="dot")), row=1, col=1)
 
     # RSI
-    fig.add_trace(
-        go.Scatter(
-            x=df.index, y=df["RSI14"],
-            mode="lines", name="RSI14",
-            line=dict(color="brown")
-        ),
-        row=2, col=1
-    )
+    fig.add_trace(go.Scatter(x=df.index, y=df["RSI14"], mode="lines", name="RSI14", line=dict(color="brown")), row=2, col=1)
     fig.add_hline(y=70, line=dict(color="red", dash="dash"), row=2, col=1)
     fig.add_hline(y=30, line=dict(color="green", dash="dash"), row=2, col=1)
 
-    # MACD زیر RSI
-    fig.add_trace(
-        go.Scatter(
-            x=df.index, y=df["MACD"],
-            mode="lines", name="MACD",
-            line=dict(color="black")
-        ),
-        row=3, col=1
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=df.index, y=df["MACD_signal"],
-            mode="lines", name="Signal",
-            line=dict(color="magenta")
-        ),
-        row=3, col=1
-    )
-    fig.add_trace(
-        go.Bar(
-            x=df.index, y=df["MACD_hist"],
-            name="Hist", marker_color="gray"
-        ),
-        row=3, col=1
-    )
+    # MACD
+    fig.add_trace(go.Scatter(x=df.index, y=df["MACD"],        mode="lines", name="MACD",   line=dict(color="black")),   row=3, col=1)
+    fig.add_trace(go.Scatter(x=df.index, y=df["MACD_signal"], mode="lines", name="Signal", line=dict(color="magenta")), row=3, col=1)
+    fig.add_trace(go.Bar(x=df.index, y=df["MACD_hist"], name="Hist", marker_color="gray"), row=3, col=1)
 
     fig.update_layout(
         title=f"{symbol} – {interval}",
         xaxis_rangeslider_visible=False,
         template="plotly_white",
         height=1000
+    )
+
+    # چاپ نام ارز + تایم‌فریم با فونت ۳۰
+    fig.add_annotation(
+        text=f"{symbol} – {interval}",
+        xref="paper", yref="paper",
+        x=0.5, y=1.05,
+        showarrow=False,
+        font=dict(size=30, color="black")
     )
 
     fig.update_yaxes(side="right", showgrid=True)
@@ -444,7 +392,7 @@ def create_plotly_chart(
     }
 
 # =========================
-# بخش ۴ — آلارم‌ها، چرخه‌ها، رفع مشکل ۱۵ دقیقه
+# بخش ۴ — آلارم‌ها (نسخه جدید)
 # =========================
 
 LAST_ALARMS = []
@@ -461,14 +409,18 @@ def detect_alarms(cfg: dict, info: dict) -> list:
     if len(wma) < 3 or len(slope) < 3:
         return alarms
 
-    # جهت WMA20
+    # -------------------------
+    # آلارم تغییر جهت WMA20
+    # -------------------------
     if cfg.get("alarm_wma_direction", True):
         if slope[-2] < 0 and slope[-1] > 0:
             alarms.append("WMA20 جهت رو به بالا گرفت")
         if slope[-2] > 0 and slope[-1] < 0:
             alarms.append("WMA20 جهت رو به پایین گرفت")
 
-    # برخوردها
+    # -------------------------
+    # برخورد WMA با SMAها
+    # -------------------------
     def cross(a, b):
         if len(a) < 2 or len(b) < 2:
             return False
@@ -476,12 +428,16 @@ def detect_alarms(cfg: dict, info: dict) -> list:
 
     if cfg.get("alarm_cross_sma20", True) and cross(wma, sma20):
         alarms.append("برخورد WMA20 با SMA20")
+
     if cfg.get("alarm_cross_sma100", True) and cross(wma, sma100):
         alarms.append("برخورد WMA20 با SMA100")
+
     if cfg.get("alarm_cross_sma200", True) and cross(wma, sma200):
         alarms.append("برخورد WMA20 با SMA200")
 
-    # جهت SMAها
+    # -------------------------
+    # تغییر جهت SMAها
+    # -------------------------
     def dir_change(arr, name):
         if len(arr) < 3:
             return
@@ -494,12 +450,16 @@ def detect_alarms(cfg: dict, info: dict) -> list:
 
     if cfg.get("alarm_sma20_direction", True):
         dir_change(sma20, "SMA20")
+
     if cfg.get("alarm_sma100_direction", True):
         dir_change(sma100, "SMA100")
+
     if cfg.get("alarm_sma200_direction", True):
         dir_change(sma200, "SMA200")
 
-    # ذخیره آلارم‌ها
+    # -------------------------
+    # ذخیره آلارم‌ها در حافظه کوتاه‌مدت
+    # -------------------------
     if alarms:
         LAST_ALARMS.append({
             "symbol": info["symbol"],
@@ -512,9 +472,8 @@ def detect_alarms(cfg: dict, info: dict) -> list:
 
     return alarms
 
-
 # =========================
-# چرخه پردازش کامل
+# بخش ۵ — چرخه‌ها (نسخه جدید)
 # =========================
 
 def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str, lookback_days: int, max_bars: int):
@@ -531,6 +490,10 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str, lookb
 
     unique_symbols = list(dict.fromkeys(symbols))
 
+    # لیست آلارم‌های این سیکل
+    cycle_alarms = []
+
+    # PDF فقط اگر فعال باشد
     pdf = None
     if cfg.get("make_pdf", True):
         pdf = PdfPages(os.path.join(PDF_DIR, f"{group}_{now_utc().strftime('%Y%m%d_%H%M%S')}.pdf"))
@@ -545,152 +508,54 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str, lookb
         info = create_plotly_chart(sym, interval, lookback_days, max_bars, png, html)
         alarms = detect_alarms(cfg, info)
 
-        caption = f"{sym} ({group})"
+        # فقط اگر آلارم وجود داشته باشد، نمودار ارسال می‌شود
         if alarms:
-            caption += "\n" + "\n".join(alarms)
+            cycle_alarms.append({
+                "symbol": sym,
+                "interval": interval,
+                "alarms": alarms
+            })
 
-        with open(info["png_path"], "rb") as f:
-            bot.send_photo(chat_id, f, caption=caption)
+            caption = f"{sym} ({group})\n" + "\n".join(alarms)
 
-        if pdf is not None:
-            img = plt.imread(info["png_path"])
-            fig, ax = plt.subplots(figsize=(10,6))
-            ax.imshow(img)
-            ax.axis("off")
-            ax.set_title(f"{sym} – {group}")
-            pdf.savefig(fig)
-            plt.close(fig)
+            with open(info["png_path"], "rb") as f:
+                bot.send_photo(chat_id, f, caption=caption)
 
+            # ذخیره در PDF اگر فعال باشد
+            if pdf is not None:
+                img = plt.imread(info["png_path"])
+                fig, ax = plt.subplots(figsize=(10,6))
+                ax.imshow(img)
+                ax.axis("off")
+                ax.set_title(f"{sym} – {group}")
+                pdf.savefig(fig)
+                plt.close(fig)
+
+        # جلوگیری از Flood Control تلگرام
+        time.sleep(1)
+
+    # بستن PDF
     if pdf is not None:
         pdf.close()
         bot.send_message(chat_id, f"فایل PDF چرخه {group} ذخیره شد.")
+
+    # ارسال جدول آلارم‌ها
+    if cycle_alarms:
+        table = "جدول آلارم‌های این سیکل:\n\n"
+        for item in cycle_alarms:
+            table += f"{item['symbol']} ({item['interval']}):\n"
+            for a in item["alarms"]:
+                table += f" - {a}\n"
+            table += "\n"
+        bot.send_message(chat_id, table)
+    else:
+        bot.send_message(chat_id, "در این سیکل هیچ آلارمی فعال نشد.")
 
     bot.send_message(chat_id, f"پایان چرخه {group}")
 
 
 # =========================
-# هندلرهای منوی 1h
-# =========================
-
-if bot_1h:
-
-    @bot_1h.message_handler(func=lambda m: m.text == "چک یک نماد")
-    def ask_symbol(m):
-        msg = bot_1h.send_message(m.chat.id, "نماد مورد نظر را وارد کنید (مثلاً BTCUSDT):")
-        bot_1h.register_next_step_handler(msg, do_symbol)
-
-    def do_symbol(m):
-        symbol = m.text.strip().upper()
-        cfg = load_config()
-
-        bot_1h.send_message(m.chat.id, f"در حال تهیه نمودار برای {symbol} ...")
-
-        ts = now_utc().strftime("%Y%m%d_%H%M%S")
-        png = f"SINGLE_{symbol}_{ts}.png"
-        html = f"SINGLE_{symbol}_{ts}.html"
-
-        info = create_plotly_chart(symbol, cfg["hourly_interval"], cfg["hourly_lookback_days"], cfg["max_bars"], png, html)
-        alarms = detect_alarms(cfg, info)
-
-        caption = f"نمودار {symbol}\nآخرین قیمت: {info['last_close']}\n"
-        if alarms:
-            caption += "آلارم‌ها:\n" + "\n".join(alarms)
-
-        with open(info["png_path"], "rb") as f:
-            bot_1h.send_photo(m.chat.id, f, caption=caption)
-
-        refresh_menu(bot_1h, m.chat.id)
-
-
-    @bot_1h.message_handler(func=lambda m: m.text == "اجرای دستی 1h")
-    def manual_1h(m):
-        cfg = load_config()
-        cfg["chat_id_1h"] = m.chat.id
-        save_config(cfg)
-
-        run_cycle("1h", bot_1h, m.chat.id, cfg["hourly_symbols"], "1h", cfg["hourly_lookback_days"], cfg["max_bars"])
-        refresh_menu(bot_1h, m.chat.id)
-
-
-    @bot_1h.message_handler(func=lambda m: m.text == "بازنشانی نمادها")
-    def reset_symbols(m):
-        cfg = load_config()
-        cfg["hourly_symbols"]   = DEFAULT_CONFIG["hourly_symbols"]
-        cfg["fourh_symbols"]    = DEFAULT_CONFIG["fourh_symbols"]
-        cfg["daily_symbols"]    = DEFAULT_CONFIG["daily_symbols"]
-        cfg["fifteenm_symbols"] = DEFAULT_CONFIG["fifteenm_symbols"]
-        save_config(cfg)
-
-        bot_1h.send_message(m.chat.id, "نمادها به حالت پیش‌فرض بازگردانده شدند.")
-        refresh_menu(bot_1h, m.chat.id)
-
-
-    @bot_1h.message_handler(func=lambda m: m.text == "راهنما")
-    def show_help(m):
-        bot_1h.send_message(m.chat.id, HELP_TEXT)
-
-
-    @bot_1h.message_handler(func=lambda m: m.text == "رفرش منو")
-    def btn_refresh(m):
-        refresh_menu(bot_1h, m.chat.id)
-
-
-    @bot_1h.message_handler(func=lambda m: m.text == "شروع چرخه‌ها")
-    def start_cycles_menu(m):
-        text = "شروع چرخه‌ها:\n"
-        text += "/start_cycle – چرخه ۱ساعته\n"
-        text += "/start_cycle_4h – چرخه ۴ساعته\n"
-        text += "/start_cycle_1d – چرخه روزانه\n"
-        text += "/start_cycle_15m – چرخه ۱۵دقیقه‌ای\n"
-        bot_1h.send_message(m.chat.id, text)
-
-
-    @bot_1h.message_handler(func=lambda m: m.text == "وضعیت سیستم")
-    def system_status(m):
-        cfg = load_config()
-
-        text = ""
-        text += f"chat_id_1h: {cfg.get('chat_id_1h')}\n"
-        text += f"chat_id_4h: {cfg.get('chat_id_4h')}\n"
-        text += f"chat_id_1d: {cfg.get('chat_id_1d')}\n"
-        text += f"chat_id_15m: {cfg.get('chat_id_15m')}\n"
-        text += f"تعداد آخرین آلارم‌ها: {len(LAST_ALARMS)}\n"
-
-        bot_1h.send_message(m.chat.id, text)
-
-
-    @bot_1h.message_handler(func=lambda m: m.text == "گزارش آلارم‌ها")
-    def alarms_report(m):
-        if not LAST_ALARMS:
-            bot_1h.send_message(m.chat.id, "آلارمی ثبت نشده است.")
-            return
-
-        text = "آخرین آلارم‌ها:\n"
-        for a in LAST_ALARMS[-10:]:
-            text += f"{a['time']} | {a['symbol']} ({a['interval']}):\n"
-            for ln in a["alarms"]:
-                text += f" - {ln}\n"
-
-        bot_1h.send_message(m.chat.id, text)
-
-
-    @bot_1h.message_handler(func=lambda m: m.text == "تنظیمات پیشرفته")
-    def advanced_settings(m):
-        cfg = load_config()
-
-        text = "تنظیمات پیشرفته:\n"
-        text += f"max_bars: {cfg.get('max_bars')}\n"
-        text += f"make_pdf: {cfg.get('make_pdf')}\n"
-        text += f"hourly_lookback_days: {cfg.get('hourly_lookback_days')}\n"
-        text += f"fourh_lookback_days: {cfg.get('fourh_lookback_days')}\n"
-        text += f"daily_lookback_days: {cfg.get('daily_lookback_days')}\n"
-        text += f"fifteenm_lookback_days: {cfg.get('fifteenm_lookback_days')}\n"
-
-        bot_1h.send_message(m.chat.id, text)
-
-
-# =========================
-# بخش ۵ — لوپ‌های زمان‌بندی و اجرای main
+# بخش ۶ — لوپ‌های زمان‌بندی و اجرای نهایی main
 # =========================
 
 def loop_1h():
@@ -763,7 +628,6 @@ def loop_15m():
         if now.minute % 15 == 0 and bot_15m and cfg.get("chat_id_15m"):
 
             symbols = cfg["fifteenm_symbols"]
-
             if isinstance(symbols, str):
                 symbols = [symbols]
 
@@ -798,6 +662,7 @@ if __name__ == "__main__":
         if bot_15m:
             bot_15m.send_message(ADMIN_CHAT, "ربات 15m راه‌اندازی شد.")
 
+    # شروع ربات‌ها و لوپ‌ها
     if bot_1h:
         threading.Thread(target=bot_1h.infinity_polling, daemon=True).start()
         threading.Thread(target=loop_1h, daemon=True).start()
@@ -814,5 +679,6 @@ if __name__ == "__main__":
         threading.Thread(target=bot_15m.infinity_polling, daemon=True).start()
         threading.Thread(target=loop_15m, daemon=True).start()
 
+    # جلوگیری از خروج برنامه
     while True:
         time.sleep(60)
