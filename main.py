@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Modu Bazler – main.py (نسخهٔ جدید با منطق آلارم و ارسال فقط ارزهای دارای آلارم)
+# Modu Bazler – main.py (نسخهٔ کامل با واچ‌لیست چندتایم‌فریم)
 
 import os, json, time, threading, datetime as dt
 import requests, numpy as np, pandas as pd
@@ -63,17 +63,21 @@ DEFAULT_CONFIG = {
     "fifteenm_lookback_days": 3,
     "max_bars": 300,
     "alarm_wma_direction": True,
-    "alarm_cross_sma20": False,
-    "alarm_cross_sma100": False,
-    "alarm_cross_sma200": False,
-    "alarm_sma20_direction": False,
-    "alarm_sma100_direction": False,
-    "alarm_sma200_direction": False,
-    "make_pdf": False,
+    "alarm_cross_sma20": True,
+    "alarm_cross_sma100": True,
+    "alarm_cross_sma200": True,
+    "alarm_sma20_direction": True,
+    "alarm_sma100_direction": True,
+    "alarm_sma200_direction": True,
+    "make_pdf": True,
     "chat_id_1h": None,
     "chat_id_4h": None,
     "chat_id_1d": None,
-    "chat_id_15m": None
+    "chat_id_15m": None,
+    "watchlist_enabled_15m": True,
+    "watchlist_enabled_1h": True,
+    "watchlist_enabled_4h": True,
+    "watchlist_enabled_1d": True
 }
 
 def save_config(cfg: dict):
@@ -92,10 +96,6 @@ def now_utc():
 
 def now_utc_str():
     return now_utc().strftime("%Y-%m-%d %H:%M:%S")
-
-# =========================
-# توکن‌ها و ساخت ربات‌ها
-# =========================
 
 TOKEN_1H   = (os.getenv("TOKEN_1H") or "").strip()
 TOKEN_4H   = (os.getenv("TOKEN_4H") or "").strip()
@@ -118,20 +118,12 @@ bot_4h  = create_bot(TOKEN_4H)
 bot_1d  = create_bot(TOKEN_1D)
 bot_15m = create_bot(TOKEN_15M)
 
-# =========================
-# بخش ۲ — منو، راهنما، هندلرهای start
-# =========================
-
 HELP_TEXT = """
-Modu Bazler – نسخه جدید با سیستم آلارم پیشرفته
+Modu Bazler – نسخه جدید با سیستم آلارم و واچ‌لیست چندتایم‌فریم
 
 دستورات:
 /start – ثبت چت و نمایش منو
 /refresh – رفرش منو
-/start_cycle – شروع چرخه ۱ساعته
-/start_cycle_4h – شروع چرخه ۴ساعته
-/start_cycle_1d – شروع چرخه روزانه
-/start_cycle_15m – شروع چرخه ۱۵دقیقه‌ای
 
 منو:
 - چک یک نماد
@@ -144,6 +136,10 @@ Modu Bazler – نسخه جدید با سیستم آلارم پیشرفته
 - وضعیت سیستم
 - گزارش آلارم‌ها
 - تنظیمات پیشرفته
+- واچ‌لیست 15m
+- واچ‌لیست 1h
+- واچ‌لیست 4h
+- واچ‌لیست 1d
 """
 
 def send_main_menu(bot, chat_id):
@@ -153,14 +149,12 @@ def send_main_menu(bot, chat_id):
     kb.row("راهنما", "رفرش منو")
     kb.row("شروع چرخه‌ها", "وضعیت سیستم")
     kb.row("گزارش آلارم‌ها", "تنظیمات پیشرفته")
+    kb.row("واچ‌لیست 15m", "واچ‌لیست 1h")
+    kb.row("واچ‌لیست 4h", "واچ‌لیست 1d")
     bot.send_message(chat_id, "منوی اصلی:", reply_markup=kb)
 
 def refresh_menu(bot, chat_id):
     send_main_menu(bot, chat_id)
-
-# =========================
-# هندلرهای /start
-# =========================
 
 if bot_1h:
     @bot_1h.message_handler(commands=["start"])
@@ -199,79 +193,8 @@ if bot_15m:
         save_config(cfg)
         bot_15m.send_message(m.chat.id, "ربات ۱۵دقیقه‌ای فعال شد.\n" + now_utc_str())
 
-
-
 # =========================
-# هندلرهای دکمه‌های منو (ربات 1h)
-# =========================
-
-if bot_1h:
-
-    @bot_1h.message_handler(func=lambda m: m.text == "چک یک نماد")
-    def check_symbol(m):
-        bot_1h.send_message(m.chat.id, "نماد مورد نظر را وارد کنید (مثلاً BTCUSDT):")
-
-    @bot_1h.message_handler(func=lambda m: m.text == "اجرای دستی 1h")
-    def manual_1h(m):
-        cfg = load_config()
-        run_cycle(
-            "1h",
-            bot_1h,
-            cfg["chat_id_1h"],
-            cfg["hourly_symbols"],
-            "1h",
-            cfg["hourly_lookback_days"],
-            cfg["max_bars"]
-        )
-
-    @bot_1h.message_handler(func=lambda m: m.text == "تنظیم آلارم‌ها")
-    def alarms_menu(m):
-        bot_1h.send_message(m.chat.id, "تنظیم آلارم‌ها هنوز فعال نشده است.")
-
-    @bot_1h.message_handler(func=lambda m: m.text == "بازنشانی نمادها")
-    def reset_symbols(m):
-        cfg = load_config()
-        cfg["hourly_symbols"] = DEFAULT_CONFIG["hourly_symbols"]
-        save_config(cfg)
-        bot_1h.send_message(m.chat.id, "نمادها بازنشانی شدند.")
-
-    @bot_1h.message_handler(func=lambda m: m.text == "راهنما")
-    def help_menu(m):
-        bot_1h.send_message(m.chat.id, HELP_TEXT)
-
-    @bot_1h.message_handler(func=lambda m: m.text == "رفرش منو")
-    def refresh_menu_btn(m):
-        refresh_menu(bot_1h, m.chat.id)
-
-    @bot_1h.message_handler(func=lambda m: m.text == "شروع چرخه‌ها")
-    def start_cycles(m):
-        bot_1h.send_message(m.chat.id, "چرخه‌ها به‌صورت خودکار اجرا می‌شوند.")
-
-    @bot_1h.message_handler(func=lambda m: m.text == "وضعیت سیستم")
-    def system_status(m):
-        bot_1h.send_message(m.chat.id, "سیستم فعال است.\n" + now_utc_str())
-
-    @bot_1h.message_handler(func=lambda m: m.text == "گزارش آلارم‌ها")
-    def alarms_report(m):
-        if not LAST_ALARMS:
-            bot_1h.send_message(m.chat.id, "هیچ آلارمی ثبت نشده است.")
-            return
-
-        txt = "آخرین آلارم‌ها:\n\n"
-        for item in LAST_ALARMS[-20:]:
-            txt += f"{item['symbol']} ({item['interval']}):\n"
-            for a in item["alarms"]:
-                txt += f" - {a}\n"
-            txt += "\n"
-
-        bot_1h.send_message(m.chat.id, txt)
-
-    @bot_1h.message_handler(func=lambda m: m.text == "تنظیمات پیشرفته")
-    def advanced_settings(m):
-        bot_1h.send_message(m.chat.id, "این بخش هنوز فعال نشده است.")
-
-# =========================
-# بخش ۳ — دریافت دیتا، اندیکاتورها، نمودارها
+# دریافت دیتا و اندیکاتورها
 # =========================
 
 def _binance_interval(i: str) -> str:
@@ -282,8 +205,6 @@ def _kucoin_interval(i: str) -> str:
 
 def fetch_ohlc(symbol: str, interval: str, lookback_days: int, max_bars: int) -> pd.DataFrame:
     limit = max(200, max_bars)
-
-    # Binance
     try:
         url = "https://api.binance.com/api/v3/klines"
         r = requests.get(url, params={
@@ -305,8 +226,6 @@ def fetch_ohlc(symbol: str, interval: str, lookback_days: int, max_bars: int) ->
         return df
     except:
         pass
-
-    # KuCoin
     try:
         sym = symbol.replace("USDT", "-USDT")
         end = int(now_utc().timestamp())
@@ -336,17 +255,14 @@ def fetch_ohlc(symbol: str, interval: str, lookback_days: int, max_bars: int) ->
 
 def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
-
     df["SMA20"]  = df["c"].rolling(20).mean()
     df["SMA100"] = df["c"].rolling(100).mean()
     df["SMA200"] = df["c"].rolling(200).mean()
-
     df["WMA20"] = df["c"].rolling(20).apply(
         lambda x: np.average(x, weights=np.arange(1, len(x)+1)),
         raw=True
     )
     df["WMA20_slope"] = df["WMA20"].diff()
-
     delta = df["c"].diff()
     gain = np.where(delta > 0, delta, 0.0)
     loss = np.where(delta < 0, -delta, 0.0)
@@ -354,13 +270,11 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     roll_loss = pd.Series(loss, index=df.index).rolling(14).mean()
     rs = roll_gain / (roll_loss + 1e-9)
     df["RSI14"] = 100 - (100 / (1 + rs))
-
     ema12 = df["c"].ewm(span=12, adjust=False).mean()
     ema26 = df["c"].ewm(span=26, adjust=False).mean()
     df["MACD"] = ema12 - ema26
     df["MACD_signal"] = df["MACD"].ewm(span=9, adjust=False).mean()
     df["MACD_hist"] = df["MACD"] - df["MACD_signal"]
-
     return df
 
 def create_plotly_chart(
@@ -387,7 +301,6 @@ def create_plotly_chart(
         vertical_spacing=0.03
     )
 
-    # Price
     fig.add_trace(
         go.Candlestick(
             x=df.index,
@@ -400,12 +313,10 @@ def create_plotly_chart(
         row=1, col=1
     )
 
-    # SMA
     fig.add_trace(go.Scatter(x=df.index, y=df["SMA20"],  mode="lines", name="SMA20",  line=dict(color="blue")),   row=1, col=1)
     fig.add_trace(go.Scatter(x=df.index, y=df["SMA100"], mode="lines", name="SMA100", line=dict(color="orange")), row=1, col=1)
     fig.add_trace(go.Scatter(x=df.index, y=df["SMA200"], mode="lines", name="SMA200", line=dict(color="purple")), row=1, col=1)
 
-    # WMA20 با رنگ شیب
     wma   = df["WMA20"]
     slope = df["WMA20_slope"]
     wma_up   = wma.where(slope >= 0)
@@ -414,12 +325,10 @@ def create_plotly_chart(
     fig.add_trace(go.Scatter(x=df.index, y=wma_up,   mode="lines", name="WMA20 Up",   line=dict(color="green", width=2, dash="dot")), row=1, col=1)
     fig.add_trace(go.Scatter(x=df.index, y=wma_down, mode="lines", name="WMA20 Down", line=dict(color="red",   width=2, dash="dot")), row=1, col=1)
 
-    # RSI
     fig.add_trace(go.Scatter(x=df.index, y=df["RSI14"], mode="lines", name="RSI14", line=dict(color="brown")), row=2, col=1)
     fig.add_hline(y=70, line=dict(color="red", dash="dash"), row=2, col=1)
     fig.add_hline(y=30, line=dict(color="green", dash="dash"), row=2, col=1)
 
-    # MACD
     fig.add_trace(go.Scatter(x=df.index, y=df["MACD"],        mode="lines", name="MACD",   line=dict(color="black")),   row=3, col=1)
     fig.add_trace(go.Scatter(x=df.index, y=df["MACD_signal"], mode="lines", name="Signal", line=dict(color="magenta")), row=3, col=1)
     fig.add_trace(go.Bar(x=df.index, y=df["MACD_hist"], name="Hist", marker_color="gray"), row=3, col=1)
@@ -431,7 +340,6 @@ def create_plotly_chart(
         height=1000
     )
 
-    # چاپ نام ارز + تایم‌فریم با فونت ۳۰
     fig.add_annotation(
         text=f"{symbol} – {interval}",
         xref="paper", yref="paper",
@@ -463,14 +371,13 @@ def create_plotly_chart(
     }
 
 # =========================
-# بخش ۴ — آلارم‌ها (نسخه جدید)
+# آلارم‌ها
 # =========================
 
 LAST_ALARMS = []
 
 def detect_alarms(cfg: dict, info: dict) -> list:
     alarms = []
-
     wma    = info["wma"]
     slope  = info["wma_slope"]
     sma20  = info["sma20"]
@@ -480,18 +387,12 @@ def detect_alarms(cfg: dict, info: dict) -> list:
     if len(wma) < 3 or len(slope) < 3:
         return alarms
 
-    # -------------------------
-    # آلارم تغییر جهت WMA20
-    # -------------------------
     if cfg.get("alarm_wma_direction", True):
         if slope[-2] < 0 and slope[-1] > 0:
             alarms.append("WMA20 جهت رو به بالا گرفت")
         if slope[-2] > 0 and slope[-1] < 0:
             alarms.append("WMA20 جهت رو به پایین گرفت")
 
-    # -------------------------
-    # برخورد WMA با SMAها
-    # -------------------------
     def cross(a, b):
         if len(a) < 2 or len(b) < 2:
             return False
@@ -499,16 +400,11 @@ def detect_alarms(cfg: dict, info: dict) -> list:
 
     if cfg.get("alarm_cross_sma20", True) and cross(wma, sma20):
         alarms.append("برخورد WMA20 با SMA20")
-
     if cfg.get("alarm_cross_sma100", True) and cross(wma, sma100):
         alarms.append("برخورد WMA20 با SMA100")
-
     if cfg.get("alarm_cross_sma200", True) and cross(wma, sma200):
         alarms.append("برخورد WMA20 با SMA200")
 
-    # -------------------------
-    # تغییر جهت SMAها
-    # -------------------------
     def dir_change(arr, name):
         if len(arr) < 3:
             return
@@ -521,16 +417,11 @@ def detect_alarms(cfg: dict, info: dict) -> list:
 
     if cfg.get("alarm_sma20_direction", True):
         dir_change(sma20, "SMA20")
-
     if cfg.get("alarm_sma100_direction", True):
         dir_change(sma100, "SMA100")
-
     if cfg.get("alarm_sma200_direction", True):
         dir_change(sma200, "SMA200")
 
-    # -------------------------
-    # ذخیره آلارم‌ها در حافظه کوتاه‌مدت
-    # -------------------------
     if alarms:
         LAST_ALARMS.append({
             "symbol": info["symbol"],
@@ -544,27 +435,22 @@ def detect_alarms(cfg: dict, info: dict) -> list:
     return alarms
 
 # =========================
-# بخش ۵ — چرخه‌ها (نسخه جدید)
+# چرخه‌ها
 # =========================
 
-def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str, lookback_days: int, max_bars: int):
+def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str, lookback_days: int, max_bars: int, watchlist_enabled: bool = True, notify_bot=None, notify_chat=None):
     if not bot or not chat_id:
         return
 
     bot.send_message(chat_id, f"شروع چرخه {group}\n# {now_utc_str()} UTC")
 
     cfg = load_config()
-
-    # جلوگیری از تکرار نمادها
     if isinstance(symbols, str):
         symbols = [symbols]
-
     unique_symbols = list(dict.fromkeys(symbols))
 
-    # لیست آلارم‌های این سیکل
     cycle_alarms = []
 
-    # PDF فقط اگر فعال باشد
     pdf = None
     if cfg.get("make_pdf", True):
         pdf = PdfPages(os.path.join(PDF_DIR, f"{group}_{now_utc().strftime('%Y%m%d_%H%M%S')}.pdf"))
@@ -579,7 +465,6 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str, lookb
         info = create_plotly_chart(sym, interval, lookback_days, max_bars, png, html)
         alarms = detect_alarms(cfg, info)
 
-        # فقط اگر آلارم وجود داشته باشد، نمودار ارسال می‌شود
         if alarms:
             cycle_alarms.append({
                 "symbol": sym,
@@ -592,7 +477,6 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str, lookb
             with open(info["png_path"], "rb") as f:
                 bot.send_photo(chat_id, f, caption=caption)
 
-            # ذخیره در PDF اگر فعال باشد
             if pdf is not None:
                 img = plt.imread(info["png_path"])
                 fig, ax = plt.subplots(figsize=(10,6))
@@ -602,15 +486,20 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str, lookb
                 pdf.savefig(fig)
                 plt.close(fig)
 
-        # جلوگیری از Flood Control تلگرام
+            if watchlist_enabled and notify_bot and notify_chat:
+                with open(info["png_path"], "rb") as f:
+                    notify_bot.send_photo(
+                        notify_chat,
+                        f,
+                        caption=f"واچ‌لیست {group} – {sym}\n" + "\n".join(alarms)
+                    )
+
         time.sleep(1)
 
-    # بستن PDF
     if pdf is not None:
         pdf.close()
         bot.send_message(chat_id, f"فایل PDF چرخه {group} ذخیره شد.")
 
-    # ارسال جدول آلارم‌ها
     if cycle_alarms:
         table = "جدول آلارم‌های این سیکل:\n\n"
         for item in cycle_alarms:
@@ -624,16 +513,185 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str, lookb
 
     bot.send_message(chat_id, f"پایان چرخه {group}")
 
+# =========================
+# هندلرهای منو و واچ‌لیست
+# =========================
+
+CHECK_STATE = {}
+WATCHLIST_MODE = {}
+
+if bot_1h:
+
+    @bot_1h.message_handler(func=lambda m: m.text == "چک یک نماد")
+    def check_symbol(m):
+        bot_1h.send_message(m.chat.id, "نماد مورد نظر را وارد کنید (مثلاً BTCUSDT):")
+        bot_1h.register_next_step_handler(m, ask_timeframe_for_check)
+
+    def ask_timeframe_for_check(m):
+        sym = m.text.strip().upper()
+        CHECK_STATE[m.chat.id] = sym
+        kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        kb.row("TF 15m", "TF 1h")
+        kb.row("TF 4h", "TF 1d")
+        bot_1h.send_message(m.chat.id, "تایم‌فریم را انتخاب کنید:", reply_markup=kb)
+        bot_1h.register_next_step_handler(m, do_single_check)
+
+    def do_single_check(m):
+        sym = CHECK_STATE.get(m.chat.id)
+        if not sym:
+            bot_1h.send_message(m.chat.id, "نماد نامشخص است.")
+            return
+        tf_map = {
+            "TF 15m": ("15m", "fifteenm_lookback_days"),
+            "TF 1h": ("1h", "hourly_lookback_days"),
+            "TF 4h": ("4h", "fourh_lookback_days"),
+            "TF 1d": ("1d", "daily_lookback_days")
+        }
+        choice = m.text.strip()
+        cfg = load_config()
+        if choice not in tf_map:
+            bot_1h.send_message(m.chat.id, "تایم‌فریم نامعتبر است.")
+            return
+        interval, lb_key = tf_map[choice]
+        lookback = cfg[lb_key]
+        max_bars = cfg["max_bars"]
+        ts = now_utc().strftime("%Y%m%d_%H%M%S")
+        png = f"single_{sym}_{interval}_{ts}.png"
+        html = f"single_{sym}_{interval}_{ts}.html"
+        info = create_plotly_chart(sym, interval, lookback, max_bars, png, html)
+        caption = f"بررسی تک‌نماد: {sym} ({interval})"
+        with open(info["png_path"], "rb") as f:
+            bot_1h.send_photo(m.chat.id, f, caption=caption)
+        send_main_menu(bot_1h, m.chat.id)
+
+    @bot_1h.message_handler(func=lambda m: m.text == "اجرای دستی 1h")
+    def manual_1h(m):
+        cfg = load_config()
+        run_cycle(
+            "1h",
+            bot_1h,
+            cfg["chat_id_1h"],
+            cfg["hourly_symbols"],
+            "1h",
+            cfg["hourly_lookback_days"],
+            cfg["max_bars"],
+            watchlist_enabled=cfg.get("watchlist_enabled_1h", True),
+            notify_bot=bot_1h,
+            notify_chat=cfg["chat_id_1h"]
+        )
+
+    @bot_1h.message_handler(func=lambda m: m.text == "تنظیم آلارم‌ها")
+    def alarms_menu(m):
+        bot_1h.send_message(m.chat.id, "تنظیم آلارم‌ها فعلاً به‌صورت دستی در config.json انجام می‌شود.")
+
+    @bot_1h.message_handler(func=lambda m: m.text == "بازنشانی نمادها")
+    def reset_symbols(m):
+        cfg = load_config()
+        cfg["hourly_symbols"]   = DEFAULT_CONFIG["hourly_symbols"]
+        cfg["fourh_symbols"]    = DEFAULT_CONFIG["fourh_symbols"]
+        cfg["daily_symbols"]    = DEFAULT_CONFIG["daily_symbols"]
+        cfg["fifteenm_symbols"] = DEFAULT_CONFIG["fifteenm_symbols"]
+        save_config(cfg)
+        bot_1h.send_message(m.chat.id, "نمادها برای همهٔ تایم‌فریم‌ها بازنشانی شدند.")
+
+    @bot_1h.message_handler(func=lambda m: m.text == "راهنما")
+    def help_menu(m):
+        bot_1h.send_message(m.chat.id, HELP_TEXT)
+
+    @bot_1h.message_handler(func=lambda m: m.text == "رفرش منو")
+    def refresh_menu_btn(m):
+        refresh_menu(bot_1h, m.chat.id)
+
+    @bot_1h.message_handler(func=lambda m: m.text == "شروع چرخه‌ها")
+    def start_cycles(m):
+        bot_1h.send_message(m.chat.id, "چرخه‌ها به‌صورت خودکار اجرا می‌شوند.")
+
+    @bot_1h.message_handler(func=lambda m: m.text == "وضعیت سیستم")
+    def system_status(m):
+        bot_1h.send_message(m.chat.id, "سیستم فعال است.\n" + now_utc_str())
+
+    @bot_1h.message_handler(func=lambda m: m.text == "گزارش آلارم‌ها")
+    def alarms_report(m):
+        if not LAST_ALARMS:
+            bot_1h.send_message(m.chat.id, "هیچ آلارمی ثبت نشده است.")
+            return
+        txt = "آخرین آلارم‌ها:\n\n"
+        for item in LAST_ALARMS[-20:]:
+            txt += f"{item['symbol']} ({item['interval']}):\n"
+            for a in item["alarms"]:
+                txt += f" - {a}\n"
+            txt += "\n"
+        bot_1h.send_message(m.chat.id, txt)
+
+    @bot_1h.message_handler(func=lambda m: m.text == "تنظیمات پیشرفته")
+    def advanced_settings(m):
+        bot_1h.send_message(m.chat.id, "این بخش هنوز به‌صورت کامل پیاده‌سازی نشده است.")
+
+    @bot_1h.message_handler(func=lambda m: m.text in ["واچ‌لیست 15m","واچ‌لیست 1h","واچ‌لیست 4h","واچ‌لیست 1d"])
+    def watchlist_menu(m):
+        cfg = load_config()
+        key_map = {
+            "واچ‌لیست 15m": ("fifteenm_symbols", "watchlist_enabled_15m", "15m"),
+            "واچ‌لیست 1h": ("hourly_symbols", "watchlist_enabled_1h", "1h"),
+            "واچ‌لیست 4h": ("fourh_symbols", "watchlist_enabled_4h", "4h"),
+            "واچ‌لیست 1d": ("daily_symbols", "watchlist_enabled_1d", "1d")
+        }
+        sym_key, flag_key, label = key_map[m.text]
+        syms = cfg.get(sym_key, [])
+        enabled = cfg.get(flag_key, True)
+        txt = f"واچ‌لیست {label}:\n"
+        if syms:
+            txt += "\n".join(syms)
+        else:
+            txt += "هیچ نمادی ثبت نشده است."
+        txt += f"\n\nوضعیت آلارم: {'روشن' if enabled else 'خاموش'}\n\n"
+        txt += "برای افزودن نماد، نماد را ارسال کن.\nبرای حذف، نماد را با علامت - قبل از آن بفرست (مثلاً -BTCUSDT).\nبرای روشن/خاموش کردن آلارم، کلمهٔ «روشن» یا «خاموش» را بفرست."
+        WATCHLIST_MODE[m.chat.id] = (sym_key, flag_key, label)
+        bot_1h.send_message(m.chat.id, txt)
+
+    @bot_1h.message_handler(func=lambda m: m.chat.id in WATCHLIST_MODE)
+    def watchlist_edit(m):
+        cfg = load_config()
+        sym_key, flag_key, label = WATCHLIST_MODE[m.chat.id]
+        text = m.text.strip().upper()
+        if text == "روشن":
+            cfg[flag_key] = True
+            save_config(cfg)
+            bot_1h.send_message(m.chat.id, f"آلارم واچ‌لیست {label} روشن شد.")
+            return
+        if text == "خاموش":
+            cfg[flag_key] = False
+            save_config(cfg)
+            bot_1h.send_message(m.chat.id, f"آلارم واچ‌لیست {label} خاموش شد.")
+            return
+        syms = cfg.get(sym_key, [])
+        if text.startswith("-"):
+            sym = text[1:].strip().upper()
+            if sym in syms:
+                syms.remove(sym)
+                cfg[sym_key] = syms
+                save_config(cfg)
+                bot_1h.send_message(m.chat.id, f"نماد {sym} از واچ‌لیست {label} حذف شد.")
+            else:
+                bot_1h.send_message(m.chat.id, f"نماد {sym} در واچ‌لیست {label} وجود ندارد.")
+        else:
+            sym = text
+            if sym not in syms:
+                syms.append(sym)
+                cfg[sym_key] = syms
+                save_config(cfg)
+                bot_1h.send_message(m.chat.id, f"نماد {sym} به واچ‌لیست {label} اضافه شد.")
+            else:
+                bot_1h.send_message(m.chat.id, f"نماد {sym} قبلاً در واچ‌لیست {label} وجود دارد.")
 
 # =========================
-# بخش ۶ — لوپ‌های زمان‌بندی و اجرای نهایی main
+# لوپ‌های زمان‌بندی
 # =========================
 
 def loop_1h():
     while True:
         cfg = load_config()
         now = dt.datetime.now()
-
         if now.minute == 30 and bot_1h and cfg.get("chat_id_1h"):
             run_cycle(
                 "1h",
@@ -642,19 +700,19 @@ def loop_1h():
                 cfg["hourly_symbols"],
                 "1h",
                 cfg["hourly_lookback_days"],
-                cfg["max_bars"]
+                cfg["max_bars"],
+                watchlist_enabled=cfg.get("watchlist_enabled_1h", True),
+                notify_bot=bot_1h,
+                notify_chat=cfg["chat_id_1h"]
             )
             time.sleep(60)
-
         time.sleep(20)
-
 
 def loop_4h():
     times = [(4,30),(8,30),(12,30),(16,30),(20,30),(23,30),(0,30)]
     while True:
         cfg = load_config()
         now = dt.datetime.now()
-
         for h, m in times:
             if now.hour == h and now.minute == m and bot_4h and cfg.get("chat_id_4h"):
                 run_cycle(
@@ -664,18 +722,18 @@ def loop_4h():
                     cfg["fourh_symbols"],
                     "4h",
                     cfg["fourh_lookback_days"],
-                    cfg["max_bars"]
+                    cfg["max_bars"],
+                    watchlist_enabled=cfg.get("watchlist_enabled_4h", True),
+                    notify_bot=bot_1h if bot_1h else bot_4h,
+                    notify_chat=cfg.get("chat_id_1h") or cfg["chat_id_4h"]
                 )
                 time.sleep(60)
-
         time.sleep(20)
-
 
 def loop_1d():
     while True:
         cfg = load_config()
         now = dt.datetime.now()
-
         if now.hour == 23 and now.minute == 30 and bot_1d and cfg.get("chat_id_1d"):
             run_cycle(
                 "1d",
@@ -684,24 +742,22 @@ def loop_1d():
                 cfg["daily_symbols"],
                 "1d",
                 cfg["daily_lookback_days"],
-                cfg["max_bars"]
+                cfg["max_bars"],
+                watchlist_enabled=cfg.get("watchlist_enabled_1d", True),
+                notify_bot=bot_1h if bot_1h else bot_1d,
+                notify_chat=cfg.get("chat_id_1h") or cfg["chat_id_1d"]
             )
             time.sleep(60)
-
         time.sleep(20)
-
 
 def loop_15m():
     while True:
         cfg = load_config()
         now = dt.datetime.now()
-
         if now.minute % 15 == 0 and bot_15m and cfg.get("chat_id_15m"):
-
             symbols = cfg["fifteenm_symbols"]
             if isinstance(symbols, str):
                 symbols = [symbols]
-
             run_cycle(
                 "15m",
                 bot_15m,
@@ -709,13 +765,13 @@ def loop_15m():
                 symbols,
                 "15m",
                 cfg["fifteenm_lookback_days"],
-                cfg["max_bars"]
+                cfg["max_bars"],
+                watchlist_enabled=cfg.get("watchlist_enabled_15m", True),
+                notify_bot=bot_1h if bot_1h else bot_15m,
+                notify_chat=cfg.get("chat_id_1h") or cfg["chat_id_15m"]
             )
-
             time.sleep(60)
-
         time.sleep(20)
-
 
 # =========================
 # اجرای نهایی main
@@ -733,7 +789,6 @@ if __name__ == "__main__":
         if bot_15m:
             bot_15m.send_message(ADMIN_CHAT, "ربات 15m راه‌اندازی شد.")
 
-    # شروع ربات‌ها و لوپ‌ها
     if bot_1h:
         threading.Thread(target=bot_1h.infinity_polling, daemon=True).start()
         threading.Thread(target=loop_1h, daemon=True).start()
@@ -750,6 +805,5 @@ if __name__ == "__main__":
         threading.Thread(target=bot_15m.infinity_polling, daemon=True).start()
         threading.Thread(target=loop_15m, daemon=True).start()
 
-    # جلوگیری از خروج برنامه
     while True:
         time.sleep(60)
