@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Modu Bazler – Watchlist Pro v3 (بخش ۱ از ۳)
+# Modu Bazler – Watchlist Pro v3 (نسخه کامل main.py)
 
 import os, json, time, threading, datetime as dt
 import requests, numpy as np, pandas as pd
@@ -31,7 +31,7 @@ TOP50 = [
     "XMRUSDT","FILUSDT","APTUSDT","NEARUSDT","OPUSDT","ARBUSDT","SUIUSDT","PEPEUSDT",
     "UNIUSDT","AAVEUSDT","INJUSDT","RNDRUSDT","FTMUSDT","NEOUSDT","GALAUSDT","SEIUSDT",
     "TIAUSDT","PYTHUSDT","JTOUSDT","WIFUSDT","JUPUSDT","STRKUSDT","BLURUSDT","RUNEUSDT",
-    "RAYUSDT","LDOUSDT","COMPUSDT","CRVUSDT","MKRUSDT","SNXUSDT","GMXUSDT","DYDXUSDT","ENSUSDT","BCHUSDT"
+    "RAYUSDT","LDOUSDT","COMPUSDT","CRVUSDT","MKRUSDT","SNXUSDT","GMXUSDT","DYDXUSDT","ENSUSDT"
 ]
 
 # =========================
@@ -39,29 +39,24 @@ TOP50 = [
 # =========================
 
 DEFAULT_CONFIG = {
-    # لیست اولیه ارزهای بررسی
     "initial_symbols": TOP50,
 
-    # واچ‌لیست‌ها (خالی)
     "hourly_symbols": [],
     "fourh_symbols": [],
     "daily_symbols": [],
     "fifteenm_symbols": [],
 
-    # تایم‌فریم‌ها
     "hourly_interval": "1h",
     "fourh_interval": "4h",
     "daily_interval": "1d",
     "fifteenm_interval": "15m",
 
-    # تعداد کندل‌ها
     "hourly_lookback_days": 5,
     "fourh_lookback_days": 15,
     "daily_lookback_days": 180,
     "fifteenm_lookback_days": 3,
     "max_bars": 300,
 
-    # آلارم‌ها
     "alarm_wma_direction": True,
     "alarm_cross_sma20": True,
     "alarm_cross_sma100": True,
@@ -70,16 +65,13 @@ DEFAULT_CONFIG = {
     "alarm_sma100_direction": True,
     "alarm_sma200_direction": True,
 
-    # PDF
     "make_pdf": True,
 
-    # چت‌ها
     "chat_id_1h": None,
     "chat_id_4h": None,
     "chat_id_1d": None,
     "chat_id_15m": None,
 
-    # واچ‌لیست روشن/خاموش
     "watchlist_enabled_15m": True,
     "watchlist_enabled_1h": True,
     "watchlist_enabled_4h": True,
@@ -90,11 +82,11 @@ DEFAULT_CONFIG = {
 # ذخیره و بارگذاری کانفیگ
 # =========================
 
-def save_config(cfg: dict):
+def save_config(cfg):
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(cfg, f, ensure_ascii=False, indent=2)
 
-def load_config() -> dict:
+def load_config():
     if not os.path.exists(CONFIG_PATH):
         save_config(DEFAULT_CONFIG)
         return DEFAULT_CONFIG.copy()
@@ -111,7 +103,7 @@ TOKEN_1D   = (os.getenv("TOKEN_1D") or "").strip()
 TOKEN_15M  = (os.getenv("TOKEN_15M") or "").strip()
 ADMIN_CHAT = (os.getenv("ADMIN_CHAT_ID") or "").strip()
 
-def create_bot(token: str):
+def create_bot(token):
     if not token:
         return None
     try:
@@ -136,7 +128,7 @@ STATE = {
 }
 
 # =========================
-# منوی InlineKeyboard اسکرول‌دار
+# منوی InlineKeyboard تک‌صفحه‌ای
 # =========================
 
 def main_menu_inline():
@@ -156,20 +148,14 @@ def main_menu_inline():
 
     return kb
 
-
-# =========================
-# بخش ۲ از ۳ — هندلرهای Callback
-# =========================
-
 def send_inline_menu(bot, chat_id):
     bot.send_message(chat_id, "منوی اصلی:", reply_markup=main_menu_inline())
 
-
 # =========================
-# هندلرهای مشترک برای همه ربات‌ها
+# هندلرهای مشترک برای هر ربات
 # =========================
 
-def register_common_handlers(bot, bot_name):
+def register_handlers(bot, bot_name):
 
     @bot.message_handler(commands=["start"])
     def start_cmd(m):
@@ -189,7 +175,7 @@ def register_common_handlers(bot, bot_name):
         # -------------------------
         if data == "back":
             STATE[bot_name][chat_id] = None
-            bot.answer_callback_query(c.id, "بازگشت انجام شد")
+            bot.answer_callback_query(c.id)
             send_inline_menu(bot, chat_id)
             return
 
@@ -198,7 +184,7 @@ def register_common_handlers(bot, bot_name):
         # -------------------------
         if data == "reset":
             STATE[bot_name][chat_id] = None
-            bot.answer_callback_query(c.id, "ریست شد")
+            bot.answer_callback_query(c.id)
             send_inline_menu(bot, chat_id)
             return
 
@@ -292,8 +278,8 @@ def register_common_handlers(bot, bot_name):
         # شروع چرخه‌ها
         # -------------------------
         if data == "start_cycles":
-            bot.send_message(chat_id, "⏳ شروع چرخه‌ها...")
             STATE[bot_name][chat_id] = "start_cycles"
+            bot.send_message(chat_id, "⏳ شروع چرخه‌ها...")
             bot.answer_callback_query(c.id)
             return
 
@@ -301,8 +287,8 @@ def register_common_handlers(bot, bot_name):
         # اجرای فوری ۱h
         # -------------------------
         if data == "run_1h_now":
-            bot.send_message(chat_id, "⏳ اجرای فوری سیکل ۱h...")
             STATE[bot_name][chat_id] = "run_1h_now"
+            bot.send_message(chat_id, "⏳ اجرای فوری سیکل ۱h...")
             bot.answer_callback_query(c.id)
             return
 
@@ -322,9 +308,8 @@ def register_common_handlers(bot, bot_name):
             bot.answer_callback_query(c.id)
             return
 
-
     # =========================
-    # هندلر پیام‌ها (برای نمادها)
+    # هندلر پیام‌ها
     # =========================
 
     @bot.message_handler(func=lambda m: True)
@@ -417,8 +402,10 @@ def register_common_handlers(bot, bot_name):
             STATE[bot_name][chat_id] = None
             return
 
+
+
 # =========================
-# بخش ۳ از ۳ — چرخه‌ها + نمودار + آلارم‌ها + لوپ‌ها
+# بخش ۲ — نمودار + چک تک‌نماد + آلارم‌ها
 # =========================
 
 import matplotlib
@@ -439,13 +426,13 @@ def now_utc_str():
     return now_utc().strftime("%Y-%m-%d %H:%M:%S")
 
 # =========================
-# تبدیل تایم‌فریم
+# تبدیل تایم‌فریم برای API
 # =========================
 
-def _binance_interval(i: str):
+def _binance_interval(i):
     return {"1h": "1h", "4h": "4h", "1d": "1d", "15m": "15m"}[i]
 
-def _kucoin_interval(i: str):
+def _kucoin_interval(i):
     return {"1h": "1hour", "4h": "4hour", "1d": "1day", "15m": "15min"}[i]
 
 # =========================
@@ -547,7 +534,7 @@ def compute_indicators(df):
     return df
 
 # =========================
-# ساخت نمودار
+# ساخت نمودار Plotly
 # =========================
 
 def create_plotly_chart(symbol, interval, lookback_days, max_bars, png_name, html_name):
@@ -701,6 +688,11 @@ def detect_alarms(cfg, info):
 
     return alarms
 
+
+# =========================
+# بخش ۳ — چرخه‌ها + لوپ‌ها + اجرای نهایی
+# =========================
+
 # =========================
 # چرخه‌ها (نسخه سبک)
 # =========================
@@ -775,6 +767,7 @@ def run_cycle(group, bot, chat_id, symbols, interval, lookback_days, max_bars,
 
     bot.send_message(chat_id, f"✅ پایان سیکل {group}\n🔢 تعداد پردازش: {len(unique_symbols)}")
 
+
 # =========================
 # اجرای فوری ۱h
 # =========================
@@ -794,8 +787,9 @@ def run_1h_now(bot, chat_id):
         notify_chat=chat_id
     )
 
+
 # =========================
-# اجرای چرخه‌ها با دکمه
+# اجرای چرخه‌ها با دکمه «شروع چرخه‌ها»
 # =========================
 
 def run_all_cycles(bot, chat_id):
@@ -857,8 +851,9 @@ def run_all_cycles(bot, chat_id):
         notify_chat=chat_id
     )
 
+
 # =========================
-# لوپ‌ها
+# لوپ‌های زمان‌بندی
 # =========================
 
 def loop_1h():
@@ -879,3 +874,112 @@ def loop_1h():
                 notify_chat=cfg["chat_id_1h"]
             )
             time.sleep(60)
+        time.sleep(20)
+
+
+def loop_4h():
+    times = [(4,30),(8,30),(12,30),(16,30),(20,30),(23,30),(0,30)]
+    while True:
+        cfg = load_config()
+        now = dt.datetime.now()
+        for h, m in times:
+            if now.hour == h and now.minute == m and bot_4h and cfg.get("chat_id_4h"):
+                run_cycle(
+                    "4h",
+                    bot_4h,
+                    cfg["chat_id_4h"],
+                    cfg["initial_symbols"],
+                    "4h",
+                    cfg["fourh_lookback_days"],
+                    cfg["max_bars"],
+                    watchlist_enabled=cfg.get("watchlist_enabled_4h", True),
+                    notify_bot=bot_4h,
+                    notify_chat=cfg["chat_id_4h"]
+                )
+                time.sleep(60)
+        time.sleep(20)
+
+
+def loop_1d():
+    while True:
+        cfg = load_config()
+        now = dt.datetime.now()
+        if now.hour == 23 and now.minute == 30 and bot_1d and cfg.get("chat_id_1d"):
+            run_cycle(
+                "1d",
+                bot_1d,
+                cfg["chat_id_1d"],
+                cfg["initial_symbols"],
+                "1d",
+                cfg["daily_lookback_days"],
+                cfg["max_bars"],
+                watchlist_enabled=cfg.get("watchlist_enabled_1d", True),
+                notify_bot=bot_1d,
+                notify_chat=cfg["chat_id_1d"]
+            )
+            time.sleep(60)
+        time.sleep(20)
+
+
+def loop_15m():
+    while True:
+        cfg = load_config()
+        now = dt.datetime.now()
+        if now.minute % 15 == 0 and bot_15m and cfg.get("chat_id_15m"):
+            run_cycle(
+                "15m",
+                bot_15m,
+                cfg["chat_id_15m"],
+                cfg["initial_symbols"],
+                "15m",
+                cfg["fifteenm_lookback_days"],
+                cfg["max_bars"],
+                watchlist_enabled=cfg.get("watchlist_enabled_15m", True),
+                notify_bot=bot_15m,
+                notify_chat=cfg["chat_id_15m"]
+            )
+            time.sleep(60)
+        time.sleep(20)
+
+
+# =========================
+# اجرای نهایی ربات‌ها
+# =========================
+
+if __name__ == "__main__":
+
+    # پیام راه‌اندازی
+    if ADMIN_CHAT:
+        if bot_1h:
+            bot_1h.send_message(ADMIN_CHAT, "ربات 1h راه‌اندازی شد.")
+        if bot_4h:
+            bot_4h.send_message(ADMIN_CHAT, "ربات 4h راه‌اندازی شد.")
+        if bot_1d:
+            bot_1d.send_message(ADMIN_CHAT, "ربات 1d راه‌اندازی شد.")
+        if bot_15m:
+            bot_15m.send_message(ADMIN_CHAT, "ربات 15m راه‌اندازی شد.")
+
+    # ثبت هندلرها
+    if bot_1h:
+        register_handlers(bot_1h, "1h")
+        threading.Thread(target=bot_1h.infinity_polling, daemon=True).start()
+        threading.Thread(target=loop_1h, daemon=True).start()
+
+    if bot_4h:
+        register_handlers(bot_4h, "4h")
+        threading.Thread(target=bot_4h.infinity_polling, daemon=True).start()
+        threading.Thread(target=loop_4h, daemon=True).start()
+
+    if bot_1d:
+        register_handlers(bot_1d, "1d")
+        threading.Thread(target=bot_1d.infinity_polling, daemon=True).start()
+        threading.Thread(target=loop_1d, daemon=True).start()
+
+    if bot_15m:
+        register_handlers(bot_15m, "15m")
+        threading.Thread(target=bot_15m.infinity_polling, daemon=True).start()
+        threading.Thread(target=loop_15m, daemon=True).start()
+
+    # برنامه زنده بماند
+    while True:
+        time.sleep(60)
