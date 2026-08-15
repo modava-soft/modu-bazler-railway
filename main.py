@@ -1,13 +1,19 @@
 # -*- coding: utf-8 -*-
-# Modu Bazler – Watchlist Pro v3 (نسخه کامل main.py)
+# Modu Bazler – Watchlist Pro v4 (main.py کامل با منوی چندصفحه‌ای)
 
 import os, json, time, threading, datetime as dt
 import requests, numpy as np, pandas as pd
 import telebot
 from telebot import types
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
+from plotly.subplots import make_subplots
+import plotly.graph_objects as go
 
 # =========================
-# مسیرها و ساخت پوشه‌ها
+# مسیرها و پوشه‌ها
 # =========================
 
 BASE_DIR   = os.path.abspath(os.path.dirname(__file__))
@@ -22,7 +28,7 @@ for d in [DATA_DIR, CHARTS_DIR, HTML_DIR, PDF_DIR]:
 CONFIG_PATH = os.path.join(DATA_DIR, "config.json")
 
 # =========================
-# لیست ۵۰ ارز بزرگ بازار
+# لیست ۵۰ ارز بزرگ
 # =========================
 
 TOP50 = [
@@ -35,7 +41,7 @@ TOP50 = [
 ]
 
 # =========================
-# کانفیگ جدید
+# کانفیگ
 # =========================
 
 DEFAULT_CONFIG = {
@@ -76,11 +82,9 @@ DEFAULT_CONFIG = {
     "watchlist_enabled_1h": True,
     "watchlist_enabled_4h": True,
     "watchlist_enabled_1d": True,
-}
 
-# =========================
-# ذخیره و بارگذاری کانفیگ
-# =========================
+    "menu_version": 1
+}
 
 def save_config(cfg):
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
@@ -94,7 +98,7 @@ def load_config():
         return json.load(f)
 
 # =========================
-# ساخت ربات‌ها
+# توکن‌ها و ربات‌ها
 # =========================
 
 TOKEN_1H   = (os.getenv("TOKEN_1H") or "").strip()
@@ -116,10 +120,6 @@ bot_4h  = create_bot(TOKEN_4H)
 bot_1d  = create_bot(TOKEN_1D)
 bot_15m = create_bot(TOKEN_15M)
 
-# =========================
-# State برای ۴ ربات
-# =========================
-
 STATE = {
     "1h": {},
     "4h": {},
@@ -128,295 +128,55 @@ STATE = {
 }
 
 # =========================
-# منوی InlineKeyboard تک‌صفحه‌ای
+# منوی چندصفحه‌ای
 # =========================
 
-def main_menu_inline():
+def menu_page_1():
     kb = types.InlineKeyboardMarkup()
-
     kb.add(types.InlineKeyboardButton("چک تک‌نماد", callback_data="check_single"))
     kb.add(types.InlineKeyboardButton("نمودار تک‌نماد", callback_data="chart_single"))
     kb.add(types.InlineKeyboardButton("نمایش لیست ارزها", callback_data="show_lists"))
     kb.add(types.InlineKeyboardButton("واچ‌لیست‌ها", callback_data="watchlists"))
     kb.add(types.InlineKeyboardButton("شروع چرخه‌ها", callback_data="start_cycles"))
     kb.add(types.InlineKeyboardButton("اجرای فوری ۱h", callback_data="run_1h_now"))
+    kb.add(types.InlineKeyboardButton("صفحه بعد ➡️", callback_data="page2"))
+    return kb
+
+def menu_page_2():
+    kb = types.InlineKeyboardMarkup()
     kb.add(types.InlineKeyboardButton("صفر کردن واچ‌لیست‌ها", callback_data="clear_watchlists"))
     kb.add(types.InlineKeyboardButton("تنظیم آلارم‌ها", callback_data="alarms"))
     kb.add(types.InlineKeyboardButton("تنظیمات پیشرفته", callback_data="advanced"))
-    kb.add(types.InlineKeyboardButton("ریست", callback_data="reset"))
-    kb.add(types.InlineKeyboardButton("بازگشت", callback_data="back"))
-
+    kb.add(types.InlineKeyboardButton("آخرین آلارم‌ها", callback_data="last_alarms"))
+    kb.add(types.InlineKeyboardButton("صفحه بعد ➡️", callback_data="page3"))
+    kb.add(types.InlineKeyboardButton("⬅️ صفحه قبل", callback_data="page1"))
     return kb
 
-def send_inline_menu(bot, chat_id):
-    bot.send_message(chat_id, "منوی اصلی:", reply_markup=main_menu_inline())
+def menu_page_3():
+    kb = types.InlineKeyboardMarkup()
+    kb.add(types.InlineKeyboardButton("راهنما", callback_data="help"))
+    kb.add(types.InlineKeyboardButton("ریست", callback_data="reset"))
+    kb.add(types.InlineKeyboardButton("⬅️ صفحه قبل", callback_data="page2"))
+    return kb
+
+def send_menu_page(bot, chat_id, page=1):
+    if page == 1:
+        bot.send_message(chat_id, "منوی اصلی – صفحه ۱:", reply_markup=menu_page_1())
+    elif page == 2:
+        bot.send_message(chat_id, "منوی اصلی – صفحه ۲:", reply_markup=menu_page_2())
+    else:
+        bot.send_message(chat_id, "منوی اصلی – صفحه ۳:", reply_markup=menu_page_3())
+
+def edit_menu_page(bot, chat_id, msg_id, page=1):
+    if page == 1:
+        bot.edit_message_text("منوی اصلی – صفحه ۱:", chat_id, msg_id, reply_markup=menu_page_1())
+    elif page == 2:
+        bot.edit_message_text("منوی اصلی – صفحه ۲:", chat_id, msg_id, reply_markup=menu_page_2())
+    else:
+        bot.edit_message_text("منوی اصلی – صفحه ۳:", chat_id, msg_id, reply_markup=menu_page_3())
 
 # =========================
-# هندلرهای مشترک برای هر ربات
-# =========================
-
-def register_handlers(bot, bot_name):
-
-    @bot.message_handler(commands=["start"])
-    def start_cmd(m):
-        cfg = load_config()
-        cfg[f"chat_id_{bot_name}"] = m.chat.id
-        save_config(cfg)
-        send_inline_menu(bot, m.chat.id)
-
-    @bot.callback_query_handler(func=lambda c: True)
-    def callback_router(c):
-
-        data = c.data
-        chat_id = c.message.chat.id
-
-        # -------------------------
-        # بازگشت
-        # -------------------------
-        if data == "back":
-            STATE[bot_name][chat_id] = None
-            bot.answer_callback_query(c.id)
-            send_inline_menu(bot, chat_id)
-            return
-
-        # -------------------------
-        # ریست
-        # -------------------------
-        if data == "reset":
-            STATE[bot_name][chat_id] = None
-            bot.answer_callback_query(c.id)
-            send_inline_menu(bot, chat_id)
-            return
-
-        # -------------------------
-        # نمایش لیست ارزها
-        # -------------------------
-        if data == "show_lists":
-            cfg = load_config()
-            txt = "📄 لیست ارزهای بررسی:\n\n"
-            txt += ", ".join(cfg["initial_symbols"])
-            bot.send_message(chat_id, txt)
-            bot.answer_callback_query(c.id)
-            return
-
-        # -------------------------
-        # صفر کردن واچ‌لیست‌ها
-        # -------------------------
-        if data == "clear_watchlists":
-            cfg = load_config()
-            cfg["hourly_symbols"] = []
-            cfg["fourh_symbols"] = []
-            cfg["daily_symbols"] = []
-            cfg["fifteenm_symbols"] = []
-            save_config(cfg)
-            bot.send_message(chat_id, "✔ واچ‌لیست‌ها صفر شدند.")
-            bot.answer_callback_query(c.id)
-            return
-
-        # -------------------------
-        # چک تک‌نماد
-        # -------------------------
-        if data == "check_single":
-            bot.send_message(chat_id, "نماد را وارد کنید (مثلاً BTCUSDT):")
-            STATE[bot_name][chat_id] = "await_single_symbol"
-            bot.answer_callback_query(c.id)
-            return
-
-        # -------------------------
-        # نمودار تک‌نماد
-        # -------------------------
-        if data == "chart_single":
-            bot.send_message(chat_id, "نماد را وارد کنید (مثلاً BTCUSDT):")
-            STATE[bot_name][chat_id] = "await_chart_symbol"
-            bot.answer_callback_query(c.id)
-            return
-
-        # -------------------------
-        # واچ‌لیست‌ها
-        # -------------------------
-        if data == "watchlists":
-            kb = types.InlineKeyboardMarkup()
-            kb.add(types.InlineKeyboardButton("واچ‌لیست 15m", callback_data="wl_15m"))
-            kb.add(types.InlineKeyboardButton("واچ‌لیست 1h", callback_data="wl_1h"))
-            kb.add(types.InlineKeyboardButton("واچ‌لیست 4h", callback_data="wl_4h"))
-            kb.add(types.InlineKeyboardButton("واچ‌لیست 1d", callback_data="wl_1d"))
-            kb.add(types.InlineKeyboardButton("بازگشت", callback_data="back"))
-            bot.send_message(chat_id, "واچ‌لیست مورد نظر را انتخاب کنید:", reply_markup=kb)
-            bot.answer_callback_query(c.id)
-            return
-
-        # -------------------------
-        # مدیریت واچ‌لیست انتخاب‌شده
-        # -------------------------
-        if data.startswith("wl_"):
-            tf = data.split("_")[1]
-            key_map = {
-                "15m": ("fifteenm_symbols", "watchlist_enabled_15m"),
-                "1h": ("hourly_symbols", "watchlist_enabled_1h"),
-                "4h": ("fourh_symbols", "watchlist_enabled_4h"),
-                "1d": ("daily_symbols", "watchlist_enabled_1d"),
-            }
-            sym_key, flag_key = key_map[tf]
-            cfg = load_config()
-            syms = cfg[sym_key]
-            enabled = cfg[flag_key]
-
-            txt = f"واچ‌لیست {tf}:\n\n"
-            txt += (", ".join(syms) if syms else "خالی") + "\n\n"
-            txt += f"آلارم: {'روشن' if enabled else 'خاموش'}\n\n"
-            txt += "➕ افزودن نماد: ارسال نماد\n"
-            txt += "➖ حذف نماد: ارسال -BTCUSDT\n"
-            txt += "🔔 روشن/خاموش: ارسال «روشن» یا «خاموش»\n"
-
-            STATE[bot_name][chat_id] = ("edit_watchlist", sym_key, flag_key)
-
-            bot.send_message(chat_id, txt)
-            bot.answer_callback_query(c.id)
-            return
-
-        # -------------------------
-        # شروع چرخه‌ها
-        # -------------------------
-        if data == "start_cycles":
-            STATE[bot_name][chat_id] = "start_cycles"
-            bot.send_message(chat_id, "⏳ شروع چرخه‌ها...")
-            bot.answer_callback_query(c.id)
-            return
-
-        # -------------------------
-        # اجرای فوری ۱h
-        # -------------------------
-        if data == "run_1h_now":
-            STATE[bot_name][chat_id] = "run_1h_now"
-            bot.send_message(chat_id, "⏳ اجرای فوری سیکل ۱h...")
-            bot.answer_callback_query(c.id)
-            return
-
-        # -------------------------
-        # تنظیم آلارم‌ها
-        # -------------------------
-        if data == "alarms":
-            bot.send_message(chat_id, "تنظیم آلارم‌ها فعلاً از طریق فایل config.json انجام می‌شود.")
-            bot.answer_callback_query(c.id)
-            return
-
-        # -------------------------
-        # تنظیمات پیشرفته
-        # -------------------------
-        if data == "advanced":
-            bot.send_message(chat_id, "تنظیمات پیشرفته فعلاً از طریق فایل config.json انجام می‌شود.")
-            bot.answer_callback_query(c.id)
-            return
-
-    # =========================
-    # هندلر پیام‌ها
-    # =========================
-
-    @bot.message_handler(func=lambda m: True)
-    def msg_router(m):
-        chat_id = m.chat.id
-        state = STATE[bot_name].get(chat_id)
-
-        # -------------------------
-        # افزودن/حذف نماد در واچ‌لیست
-        # -------------------------
-        if isinstance(state, tuple) and state[0] == "edit_watchlist":
-            sym_key, flag_key = state[1], state[2]
-            cfg = load_config()
-            text = m.text.strip().upper()
-
-            if text == "روشن":
-                cfg[flag_key] = True
-                save_config(cfg)
-                bot.send_message(chat_id, "آلارم روشن شد.")
-                return
-
-            if text == "خاموش":
-                cfg[flag_key] = False
-                save_config(cfg)
-                bot.send_message(chat_id, "آلارم خاموش شد.")
-                return
-
-            syms = cfg[sym_key]
-
-            if text.startswith("-"):
-                sym = text[1:]
-                if sym in syms:
-                    syms.remove(sym)
-                    cfg[sym_key] = syms
-                    save_config(cfg)
-                    bot.send_message(chat_id, f"{sym} حذف شد.")
-                else:
-                    bot.send_message(chat_id, f"{sym} وجود ندارد.")
-                return
-
-            sym = text
-            if sym not in syms:
-                syms.append(sym)
-                cfg[sym_key] = syms
-                save_config(cfg)
-                bot.send_message(chat_id, f"{sym} اضافه شد.")
-            else:
-                bot.send_message(chat_id, f"{sym} قبلاً وجود دارد.")
-            return
-
-        # -------------------------
-        # چک تک‌نماد
-        # -------------------------
-        if state == "await_single_symbol":
-            STATE[bot_name][chat_id] = ("single_symbol", m.text.strip().upper())
-            kb = types.InlineKeyboardMarkup()
-            kb.add(types.InlineKeyboardButton("TF 15m", callback_data="tf_15m_single"))
-            kb.add(types.InlineKeyboardButton("TF 1h", callback_data="tf_1h_single"))
-            kb.add(types.InlineKeyboardButton("TF 4h", callback_data="tf_4h_single"))
-            kb.add(types.InlineKeyboardButton("TF 1d", callback_data="tf_1d_single"))
-            bot.send_message(chat_id, "تایم‌فریم را انتخاب کنید:", reply_markup=kb)
-            return
-
-        # -------------------------
-        # نمودار تک‌نماد
-        # -------------------------
-        if state == "await_chart_symbol":
-            STATE[bot_name][chat_id] = ("chart_symbol", m.text.strip().upper())
-            kb = types.InlineKeyboardMarkup()
-            kb.add(types.InlineKeyboardButton("TF 15m", callback_data="tf_15m_chart"))
-            kb.add(types.InlineKeyboardButton("TF 1h", callback_data="tf_1h_chart"))
-            kb.add(types.InlineKeyboardButton("TF 4h", callback_data="tf_4h_chart"))
-            kb.add(types.InlineKeyboardButton("TF 1d", callback_data="tf_1d_chart"))
-            bot.send_message(chat_id, "تایم‌فریم نمودار را انتخاب کنید:", reply_markup=kb)
-            return
-
-        # -------------------------
-        # اجرای فوری چرخه‌ها
-        # -------------------------
-        if state == "start_cycles":
-            bot.send_message(chat_id, "🚀 چرخه‌ها در بخش ۳ اجرا خواهند شد.")
-            STATE[bot_name][chat_id] = None
-            return
-
-        # -------------------------
-        # اجرای فوری ۱h
-        # -------------------------
-        if state == "run_1h_now":
-            bot.send_message(chat_id, "🚀 سیکل ۱h در بخش ۳ اجرا خواهد شد.")
-            STATE[bot_name][chat_id] = None
-            return
-
-
-
-# =========================
-# بخش ۲ — نمودار + چک تک‌نماد + آلارم‌ها
-# =========================
-
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-from matplotlib.backends.backend_pdf import PdfPages
-from plotly.subplots import make_subplots
-import plotly.graph_objects as go
-
-# =========================
-# زمان
+# زمان و تبدیل تایم‌فریم
 # =========================
 
 def now_utc():
@@ -424,10 +184,6 @@ def now_utc():
 
 def now_utc_str():
     return now_utc().strftime("%Y-%m-%d %H:%M:%S")
-
-# =========================
-# تبدیل تایم‌فریم برای API
-# =========================
 
 def _binance_interval(i):
     return {"1h": "1h", "4h": "4h", "1d": "1d", "15m": "15m"}[i]
@@ -442,7 +198,6 @@ def _kucoin_interval(i):
 def fetch_ohlc(symbol, interval, lookback_days, max_bars):
     limit = max(200, max_bars)
 
-    # Binance
     try:
         url = "https://api.binance.com/api/v3/klines"
         r = requests.get(url, params={
@@ -468,7 +223,6 @@ def fetch_ohlc(symbol, interval, lookback_days, max_bars):
     except:
         pass
 
-    # KuCoin fallback
     try:
         sym = symbol.replace("USDT", "-USDT")
         end = int(now_utc().timestamp())
@@ -688,13 +442,8 @@ def detect_alarms(cfg, info):
 
     return alarms
 
-
 # =========================
-# بخش ۳ — چرخه‌ها + لوپ‌ها + اجرای نهایی
-# =========================
-
-# =========================
-# چرخه‌ها (نسخه سبک)
+# چرخه‌ها
 # =========================
 
 def run_cycle(group, bot, chat_id, symbols, interval, lookback_days, max_bars,
@@ -767,11 +516,6 @@ def run_cycle(group, bot, chat_id, symbols, interval, lookback_days, max_bars,
 
     bot.send_message(chat_id, f"✅ پایان سیکل {group}\n🔢 تعداد پردازش: {len(unique_symbols)}")
 
-
-# =========================
-# اجرای فوری ۱h
-# =========================
-
 def run_1h_now(bot, chat_id):
     cfg = load_config()
     run_cycle(
@@ -787,15 +531,9 @@ def run_1h_now(bot, chat_id):
         notify_chat=chat_id
     )
 
-
-# =========================
-# اجرای چرخه‌ها با دکمه «شروع چرخه‌ها»
-# =========================
-
 def run_all_cycles(bot, chat_id):
     cfg = load_config()
 
-    # 15m
     run_cycle(
         "15m",
         bot,
@@ -809,7 +547,6 @@ def run_all_cycles(bot, chat_id):
         notify_chat=chat_id
     )
 
-    # 1h
     run_cycle(
         "1h",
         bot,
@@ -823,7 +560,6 @@ def run_all_cycles(bot, chat_id):
         notify_chat=chat_id
     )
 
-    # 4h
     run_cycle(
         "4h",
         bot,
@@ -837,7 +573,6 @@ def run_all_cycles(bot, chat_id):
         notify_chat=chat_id
     )
 
-    # 1d
     run_cycle(
         "1d",
         bot,
@@ -851,9 +586,8 @@ def run_all_cycles(bot, chat_id):
         notify_chat=chat_id
     )
 
-
 # =========================
-# لوپ‌های زمان‌بندی
+# لوپ‌ها
 # =========================
 
 def loop_1h():
@@ -875,7 +609,6 @@ def loop_1h():
             )
             time.sleep(60)
         time.sleep(20)
-
 
 def loop_4h():
     times = [(4,30),(8,30),(12,30),(16,30),(20,30),(23,30),(0,30)]
@@ -899,7 +632,6 @@ def loop_4h():
                 time.sleep(60)
         time.sleep(20)
 
-
 def loop_1d():
     while True:
         cfg = load_config()
@@ -919,7 +651,6 @@ def loop_1d():
             )
             time.sleep(60)
         time.sleep(20)
-
 
 def loop_15m():
     while True:
@@ -941,14 +672,253 @@ def loop_15m():
             time.sleep(60)
         time.sleep(20)
 
+# =========================
+# هندلرها
+# =========================
+
+def register_handlers(bot, bot_name):
+
+    @bot.message_handler(commands=["start"])
+    def start_cmd(m):
+        cfg = load_config()
+        cfg[f"chat_id_{bot_name}"] = m.chat.id
+        cfg["menu_version"] = 2
+        save_config(cfg)
+        send_menu_page(bot, m.chat.id, page=1)
+
+    @bot.callback_query_handler(func=lambda c: True)
+    def callback_router(c):
+        data = c.data
+        chat_id = c.message.chat.id
+
+        if data == "page1":
+            edit_menu_page(bot, chat_id, c.message.message_id, page=1)
+            bot.answer_callback_query(c.id)
+            return
+
+        if data == "page2":
+            edit_menu_page(bot, chat_id, c.message.message_id, page=2)
+            bot.answer_callback_query(c.id)
+            return
+
+        if data == "page3":
+            edit_menu_page(bot, chat_id, c.message.message_id, page=3)
+            bot.answer_callback_query(c.id)
+            return
+
+        if data == "reset":
+            STATE[bot_name][chat_id] = None
+            bot.answer_callback_query(c.id)
+            send_menu_page(bot, chat_id, page=1)
+            return
+
+        if data == "show_lists":
+            cfg = load_config()
+            txt = "📄 لیست ارزهای بررسی:\n\n" + ", ".join(cfg["initial_symbols"])
+            bot.send_message(chat_id, txt)
+            bot.answer_callback_query(c.id)
+            return
+
+        if data == "clear_watchlists":
+            cfg = load_config()
+            cfg["hourly_symbols"] = []
+            cfg["fourh_symbols"] = []
+            cfg["daily_symbols"] = []
+            cfg["fifteenm_symbols"] = []
+            save_config(cfg)
+            bot.send_message(chat_id, "✔ واچ‌لیست‌ها صفر شدند.")
+            bot.answer_callback_query(c.id)
+            return
+
+        if data == "check_single":
+            bot.send_message(chat_id, "نماد را وارد کنید:")
+            STATE[bot_name][chat_id] = "await_single_symbol"
+            bot.answer_callback_query(c.id)
+            return
+
+        if data == "chart_single":
+            bot.send_message(chat_id, "نماد را وارد کنید:")
+            STATE[bot_name][chat_id] = "await_chart_symbol"
+            bot.answer_callback_query(c.id)
+            return
+
+        if data == "watchlists":
+            kb = types.InlineKeyboardMarkup()
+            kb.add(types.InlineKeyboardButton("واچ‌لیست 15m", callback_data="wl_15m"))
+            kb.add(types.InlineKeyboardButton("واچ‌لیست 1h", callback_data="wl_1h"))
+            kb.add(types.InlineKeyboardButton("واچ‌لیست 4h", callback_data="wl_4h"))
+            kb.add(types.InlineKeyboardButton("واچ‌لیست 1d", callback_data="wl_1d"))
+            kb.add(types.InlineKeyboardButton("بازگشت", callback_data="page1"))
+            bot.send_message(chat_id, "واچ‌لیست مورد نظر را انتخاب کنید:", reply_markup=kb)
+            bot.answer_callback_query(c.id)
+            return
+
+        if data.startswith("wl_"):
+            tf = data.split("_")[1]
+            key_map = {
+                "15m": ("fifteenm_symbols", "watchlist_enabled_15m"),
+                "1h": ("hourly_symbols", "watchlist_enabled_1h"),
+                "4h": ("fourh_symbols", "watchlist_enabled_4h"),
+                "1d": ("daily_symbols", "watchlist_enabled_1d"),
+            }
+            sym_key, flag_key = key_map[tf]
+            cfg = load_config()
+            syms = cfg[sym_key]
+            enabled = cfg[flag_key]
+
+            txt = f"واچ‌لیست {tf}:\n\n"
+            txt += (", ".join(syms) if syms else "خالی") + "\n\n"
+            txt += f"آلارم: {'روشن' if enabled else 'خاموش'}\n\n"
+            txt += "➕ افزودن نماد: ارسال نماد\n"
+            txt += "➖ حذف نماد: ارسال -BTCUSDT\n"
+            txt += "🔔 روشن/خاموش: ارسال «روشن» یا «خاموش»\n"
+
+            STATE[bot_name][chat_id] = ("edit_watchlist", sym_key, flag_key)
+
+            bot.send_message(chat_id, txt)
+            bot.answer_callback_query(c.id)
+            return
+
+        if data == "start_cycles":
+            STATE[bot_name][chat_id] = "start_cycles"
+            bot.send_message(chat_id, "⏳ شروع چرخه‌ها...")
+            bot.answer_callback_query(c.id)
+            run_all_cycles(bot, chat_id)
+            return
+
+        if data == "run_1h_now":
+            STATE[bot_name][chat_id] = "run_1h_now"
+            bot.send_message(chat_id, "⏳ اجرای فوری سیکل ۱h...")
+            bot.answer_callback_query(c.id)
+            run_1h_now(bot, chat_id)
+            STATE[bot_name][chat_id] = None
+            return
+
+        if data == "alarms":
+            cfg = load_config()
+            txt = "تنظیم آلارم‌ها از طریق config.json انجام می‌شود.\n"
+            txt += "alarm_wma_direction, alarm_cross_sma20, alarm_cross_sma100, alarm_cross_sma200,\n"
+            txt += "alarm_sma20_direction, alarm_sma100_direction, alarm_sma200_direction\n"
+            bot.send_message(chat_id, txt)
+            bot.answer_callback_query(c.id)
+            return
+
+        if data == "advanced":
+            cfg = load_config()
+            txt = "تنظیمات پیشرفته:\n"
+            txt += f"max_bars = {cfg['max_bars']}\n"
+            txt += f"hourly_lookback_days = {cfg['hourly_lookback_days']}\n"
+            txt += f"fourh_lookback_days = {cfg['fourh_lookback_days']}\n"
+            txt += f"daily_lookback_days = {cfg['daily_lookback_days']}\n"
+            txt += f"fifteenm_lookback_days = {cfg['fifteenm_lookback_days']}\n"
+            bot.send_message(chat_id, txt)
+            bot.answer_callback_query(c.id)
+            return
+
+        if data == "last_alarms":
+            if not LAST_ALARMS:
+                bot.send_message(chat_id, "هیچ آلارمی ثبت نشده است.")
+            else:
+                txt = "آخرین آلارم‌ها:\n\n"
+                for item in LAST_ALARMS[-20:]:
+                    txt += f"{item['time']} – {item['symbol']} ({item['interval']}):\n"
+                    for a in item["alarms"]:
+                        txt += f"  • {a}\n"
+                    txt += "\n"
+                bot.send_message(chat_id, txt)
+            bot.answer_callback_query(c.id)
+            return
+
+        if data == "help":
+            txt = "راهنما:\n"
+            txt += "صفحه ۱: چک تک‌نماد، نمودار، لیست ارزها، واچ‌لیست‌ها، شروع چرخه‌ها، اجرای فوری ۱h\n"
+            txt += "صفحه ۲: صفر کردن واچ‌لیست‌ها، تنظیم آلارم‌ها، تنظیمات پیشرفته، آخرین آلارم‌ها\n"
+            txt += "صفحه ۳: راهنما، ریست\n"
+            bot.send_message(chat_id, txt)
+            bot.answer_callback_query(c.id)
+            return
+
+    @bot.message_handler(func=lambda m: True)
+    def msg_router(m):
+        chat_id = m.chat.id
+        state = STATE[bot_name].get(chat_id)
+
+        if isinstance(state, tuple) and state[0] == "edit_watchlist":
+            sym_key, flag_key = state[1], state[2]
+            cfg = load_config()
+            text = m.text.strip().upper()
+
+            if text == "روشن":
+                cfg[flag_key] = True
+                save_config(cfg)
+                bot.send_message(chat_id, "آلارم روشن شد.")
+                return
+
+            if text == "خاموش":
+                cfg[flag_key] = False
+                save_config(cfg)
+                bot.send_message(chat_id, "آلارم خاموش شد.")
+                return
+
+            syms = cfg[sym_key]
+
+            if text.startswith("-"):
+                sym = text[1:]
+                if sym in syms:
+                    syms.remove(sym)
+                    cfg[sym_key] = syms
+                    save_config(cfg)
+                    bot.send_message(chat_id, f"{sym} حذف شد.")
+                else:
+                    bot.send_message(chat_id, f"{sym} وجود ندارد.")
+                return
+
+            sym = text
+            if sym not in syms:
+                syms.append(sym)
+                cfg[sym_key] = syms
+                save_config(cfg)
+                bot.send_message(chat_id, f"{sym} اضافه شد.")
+            else:
+                bot.send_message(chat_id, f"{sym} قبلاً وجود دارد.")
+            return
+
+        if state == "await_single_symbol":
+            STATE[bot_name][chat_id] = ("single_symbol", m.text.strip().upper())
+            kb = types.InlineKeyboardMarkup()
+            kb.add(types.InlineKeyboardButton("TF 15m", callback_data="tf_15m_single"))
+            kb.add(types.InlineKeyboardButton("TF 1h", callback_data="tf_1h_single"))
+            kb.add(types.InlineKeyboardButton("TF 4h", callback_data="tf_4h_single"))
+            kb.add(types.InlineKeyboardButton("TF 1d", callback_data="tf_1d_single"))
+            bot.send_message(chat_id, "تایم‌فریم را انتخاب کنید:", reply_markup=kb)
+            return
+
+        if state == "await_chart_symbol":
+            STATE[bot_name][chat_id] = ("chart_symbol", m.text.strip().upper())
+            kb = types.InlineKeyboardMarkup()
+            kb.add(types.InlineKeyboardButton("TF 15m", callback_data="tf_15m_chart"))
+            kb.add(types.InlineKeyboardButton("TF 1h", callback_data="tf_1h_chart"))
+            kb.add(types.InlineKeyboardButton("TF 4h", callback_data="tf_4h_chart"))
+            kb.add(types.InlineKeyboardButton("TF 1d", callback_data="tf_1d_chart"))
+            bot.send_message(chat_id, "تایم‌فریم نمودار را انتخاب کنید:", reply_markup=kb)
+            return
+
+        if state == "start_cycles":
+            run_all_cycles(bot, chat_id)
+            STATE[bot_name][chat_id] = None
+            return
+
+        if state == "run_1h_now":
+            run_1h_now(bot, chat_id)
+            STATE[bot_name][chat_id] = None
+            return
 
 # =========================
-# اجرای نهایی ربات‌ها
+# اجرای نهایی
 # =========================
 
 if __name__ == "__main__":
 
-    # پیام راه‌اندازی
     if ADMIN_CHAT:
         if bot_1h:
             bot_1h.send_message(ADMIN_CHAT, "ربات 1h راه‌اندازی شد.")
@@ -959,7 +929,6 @@ if __name__ == "__main__":
         if bot_15m:
             bot_15m.send_message(ADMIN_CHAT, "ربات 15m راه‌اندازی شد.")
 
-    # ثبت هندلرها
     if bot_1h:
         register_handlers(bot_1h, "1h")
         threading.Thread(target=bot_1h.infinity_polling, daemon=True).start()
@@ -980,6 +949,5 @@ if __name__ == "__main__":
         threading.Thread(target=bot_15m.infinity_polling, daemon=True).start()
         threading.Thread(target=loop_15m, daemon=True).start()
 
-    # برنامه زنده بماند
     while True:
         time.sleep(60)
