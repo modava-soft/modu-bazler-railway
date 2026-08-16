@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-# Modu Bazler – Watchlist Pro v9
-# منو با ReplyKeyboardMarkup + واچ‌لیست امن + پیام‌های پردازش و پیشرفت + لوپ‌های پایدار
+# Modu Bazler – Single Bot, Multi Cycles v10
+# یک ربات – چهار سیکل – منوی چندصفحه‌ای – واچ‌لیست امن – پیام پردازش هر ارز
 
 import os, json, time, threading, datetime as dt, re
 import requests, numpy as np, pandas as pd
@@ -48,20 +48,20 @@ TOP50 = [
 DEFAULT_CONFIG = {
     "initial_symbols": TOP50,
 
-    "hourly_symbols": [],
-    "fourh_symbols": [],
-    "daily_symbols": [],
-    "fifteenm_symbols": [],
+    "wl_15m": [],
+    "wl_1h": [],
+    "wl_4h": [],
+    "wl_1d": [],
 
-    "hourly_interval": "1h",
-    "fourh_interval": "4h",
-    "daily_interval": "1d",
-    "fifteenm_interval": "15m",
+    "interval_15m": "15m",
+    "interval_1h": "1h",
+    "interval_4h": "4h",
+    "interval_1d": "1d",
 
-    "hourly_lookback_days": 5,
-    "fourh_lookback_days": 15,
-    "daily_lookback_days": 180,
-    "fifteenm_lookback_days": 3,
+    "lookback_15m_days": 3,
+    "lookback_1h_days": 5,
+    "lookback_4h_days": 15,
+    "lookback_1d_days": 180,
     "max_bars": 300,
 
     "alarm_wma_direction": True,
@@ -74,10 +74,7 @@ DEFAULT_CONFIG = {
 
     "make_pdf": True,
 
-    "chat_id_1h": None,
-    "chat_id_4h": None,
-    "chat_id_1d": None,
-    "chat_id_15m": None,
+    "chat_id_cycle": None,
 
     "watchlist_enabled_15m": True,
     "watchlist_enabled_1h": True,
@@ -99,34 +96,15 @@ def load_config():
         return json.load(f)
 
 # =========================
-# توکن‌ها و ربات‌ها
+# توکن و ربات
 # =========================
 
-TOKEN_1H   = (os.getenv("TOKEN_1H") or "").strip()
-TOKEN_4H   = (os.getenv("TOKEN_4H") or "").strip()
-TOKEN_1D   = (os.getenv("TOKEN_1D") or "").strip()
-TOKEN_15M  = (os.getenv("TOKEN_15M") or "").strip()
-ADMIN_CHAT = (os.getenv("ADMIN_CHAT_ID") or "").strip()
+TOKEN       = (os.getenv("TELEGRAM_TOKEN") or "").strip()
+ADMIN_CHAT  = (os.getenv("ADMIN_CHAT_ID") or "").strip()
 
-def create_bot(token):
-    if not token:
-        return None
-    try:
-        return telebot.TeleBot(token, parse_mode="HTML")
-    except:
-        return None
+bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
 
-bot_1h  = create_bot(TOKEN_1H)
-bot_4h  = create_bot(TOKEN_4H)
-bot_1d  = create_bot(TOKEN_1D)
-bot_15m = create_bot(TOKEN_15M)
-
-STATE = {
-    "1h": {},
-    "4h": {},
-    "1d": {},
-    "15m": {}
-}
+STATE = {}
 
 # =========================
 # منوهای ReplyKeyboardMarkup
@@ -135,8 +113,11 @@ STATE = {
 MAIN_PAGE_1 = "📊 نمودار + آلارم تک‌نماد"
 MAIN_PAGE_1_LIST = "📋 لیست ارزهای بررسی"
 MAIN_PAGE_1_WL = "👁 واچ‌لیست‌ها"
-MAIN_PAGE_1_START = "🚀 شروع چرخه‌ها"
-MAIN_PAGE_1_RUN1H = "⚡ اجرای فوری ۱h"
+MAIN_PAGE_1_START_ALL = "🚀 شروع چرخه‌های کامل"
+MAIN_PAGE_1_RUN_15M = "⚡ اجرای فوری 15m"
+MAIN_PAGE_1_RUN_1H = "⚡ اجرای فوری 1h"
+MAIN_PAGE_1_RUN_4H = "⚡ اجرای فوری 4h"
+MAIN_PAGE_1_RUN_1D = "⚡ اجرای فوری 1d"
 MAIN_PAGE_1_LOOPS = "⏱ وضعیت لوپ‌ها"
 MAIN_PAGE_1_NEXT = "➡️ صفحه ۲"
 
@@ -168,8 +149,9 @@ TF_1D  = "1d"
 TF_BACK = "⬅️ انصراف"
 
 ALL_MENU_TEXTS = {
-    MAIN_PAGE_1, MAIN_PAGE_1_LIST, MAIN_PAGE_1_WL, MAIN_PAGE_1_START,
-    MAIN_PAGE_1_RUN1H, MAIN_PAGE_1_LOOPS, MAIN_PAGE_1_NEXT,
+    MAIN_PAGE_1, MAIN_PAGE_1_LIST, MAIN_PAGE_1_WL, MAIN_PAGE_1_START_ALL,
+    MAIN_PAGE_1_RUN_15M, MAIN_PAGE_1_RUN_1H, MAIN_PAGE_1_RUN_4H, MAIN_PAGE_1_RUN_1D,
+    MAIN_PAGE_1_LOOPS, MAIN_PAGE_1_NEXT,
     MAIN_PAGE_2_CLEAR_WL, MAIN_PAGE_2_ALARMS, MAIN_PAGE_2_ADV,
     MAIN_PAGE_2_LAST, MAIN_PAGE_2_PDF, MAIN_PAGE_2_CFG,
     MAIN_PAGE_2_PREV, MAIN_PAGE_2_NEXT,
@@ -184,8 +166,10 @@ SYMBOL_PATTERN = re.compile(r"^[A-Z0-9]{2,}USDT$")
 def build_main_menu_page1():
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
     kb.row(MAIN_PAGE_1, MAIN_PAGE_1_LIST)
-    kb.row(MAIN_PAGE_1_WL, MAIN_PAGE_1_START)
-    kb.row(MAIN_PAGE_1_RUN1H, MAIN_PAGE_1_LOOPS)
+    kb.row(MAIN_PAGE_1_WL, MAIN_PAGE_1_START_ALL)
+    kb.row(MAIN_PAGE_1_RUN_15M, MAIN_PAGE_1_RUN_1H)
+    kb.row(MAIN_PAGE_1_RUN_4H, MAIN_PAGE_1_RUN_1D)
+    kb.row(MAIN_PAGE_1_LOOPS)
     kb.row(MAIN_PAGE_1_NEXT)
     return kb
 
@@ -218,7 +202,7 @@ def build_tf_menu():
     kb.row(TF_BACK)
     return kb
 
-def send_main_menu(bot, chat_id, page=1):
+def send_main_menu(chat_id, page=1):
     if page == 1:
         bot.send_message(chat_id, "🧭 منوی اصلی – صفحه ۱:", reply_markup=build_main_menu_page1())
     elif page == 2:
@@ -494,29 +478,37 @@ def detect_alarms(cfg, info):
     return alarms
 
 # =========================
-# چرخه‌ها با پیام پیشرفت
+# چرخه‌ها با پیام هر ارز
 # =========================
 
-def run_cycle(
-    group, bot, chat_id, symbols, interval,
-    lookback_days, max_bars,
-    watchlist_enabled=True, notify_bot=None, notify_chat=None
-):
+def run_cycle(group, chat_id, symbols, interval, lookback_days, max_bars,
+              watchlist_enabled=True, use_watchlist=False):
     try:
         cfg = load_config()
+
+        if use_watchlist:
+            wl_map = {
+                "15m": "wl_15m",
+                "1h": "wl_1h",
+                "4h": "wl_4h",
+                "1d": "wl_1d"
+            }
+            wl_key = wl_map[interval]
+            symbols = cfg.get(wl_key, []) or symbols
 
         if isinstance(symbols, str):
             symbols = [symbols]
         unique_symbols = list(dict.fromkeys(symbols))
 
         total = len(unique_symbols)
-        approx_sec = total * 4
+        approx_sec = total * 6
 
         bot.send_message(
             chat_id,
             f"🔄 شروع سیکل {group}\n"
             f"⏱ زمان شروع: {now_utc_str()}\n"
-            f"⏳ زمان تقریبی پردازش: حدود {approx_sec} ثانیه"
+            f"⏳ زمان تقریبی پردازش: حدود {approx_sec} ثانیه\n"
+            f"🔢 تعداد نمادها: {total}"
         )
 
         cycle_alarms = []
@@ -531,6 +523,11 @@ def run_cycle(
 
         for idx, sym in enumerate(unique_symbols, start=1):
             try:
+                bot.send_message(
+                    chat_id,
+                    f"🔍 در حال بررسی {sym} ({idx}/{total}) در سیکل {group}..."
+                )
+
                 ts = now_utc().strftime("%Y%m%d_%H%M%S")
                 png = f"{group}_{sym}_{ts}.png"
                 html = f"{group}_{sym}_{ts}.html"
@@ -538,42 +535,41 @@ def run_cycle(
                 info = create_plotly_chart(sym, interval, lookback_days, max_bars, png, html)
                 alarms = detect_alarms(cfg, info)
 
+                caption = f"📊 {sym} – {interval} – سیکل {group}\n"
                 if alarms:
+                    caption += "🔔 آلارم‌ها:\n" + "\n".join(f"• {a}" for a in alarms)
                     cycle_alarms.append({
                         "symbol": sym,
                         "interval": interval,
                         "alarms": alarms
                     })
+                else:
+                    caption += "✅ در این لحظه آلارمی فعال نشد."
 
-                    if pdf is not None:
-                        img = plt.imread(info["png_path"])
-                        fig, ax = plt.subplots(figsize=(10,6))
-                        ax.imshow(img)
-                        ax.axis("off")
-                        ax.set_title(f"{sym} – {group}")
-                        pdf.savefig(fig)
-                        plt.close(fig)
+                with open(info["png_path"], "rb") as f:
+                    bot.send_photo(chat_id, f, caption=caption)
 
-                    if watchlist_enabled and notify_bot and notify_chat:
-                        with open(info["png_path"], "rb") as f:
-                            notify_bot.send_photo(
-                                notify_chat,
-                                f,
-                                caption=f"🚨 آلارم واچ‌لیست {group}\n{sym}\n" + "\n".join(alarms)
-                            )
+                if pdf is not None and alarms:
+                    img = plt.imread(info["png_path"])
+                    fig, ax = plt.subplots(figsize=(10,6))
+                    ax.imshow(img)
+                    ax.axis("off")
+                    ax.set_title(f"{sym} – {group}")
+                    pdf.savefig(fig)
+                    plt.close(fig)
 
                 if idx % step == 0 or idx == total:
                     bot.send_message(
                         chat_id,
-                        f"🔄 پیشرفت پردازش: {idx} از {total} نماد بررسی شد."
+                        f"🔄 پیشرفت سیکل {group}: {idx} از {total} نماد بررسی شد."
                     )
 
-                time.sleep(1)
+                time.sleep(2)
 
             except Exception as e_sym:
                 bot.send_message(
                     chat_id,
-                    f"⚠ خطا در پردازش نماد {sym}:\n{e_sym}"
+                    f"⚠ خطا در پردازش نماد {sym} در سیکل {group}:\n{e_sym}"
                 )
 
         if pdf is not None:
@@ -581,7 +577,7 @@ def run_cycle(
             bot.send_message(chat_id, f"📄 فایل PDF چرخه {group} ذخیره شد.")
 
         if cycle_alarms:
-            table = "📊 گزارش آلارم‌های این سیکل:\n\n"
+            table = f"📊 گزارش آلارم‌های سیکل {group}:\n\n"
             for item in cycle_alarms:
                 table += f"🔹 {item['symbol']} ({item['interval']}):\n"
                 for a in item["alarms"]:
@@ -589,7 +585,7 @@ def run_cycle(
                 table += "\n"
             bot.send_message(chat_id, table)
         else:
-            bot.send_message(chat_id, "✔ در این سیکل هیچ آلارمی فعال نشد.")
+            bot.send_message(chat_id, f"✔ در سیکل {group} هیچ آلارمی فعال نشد.")
 
         bot.send_message(
             chat_id,
@@ -602,78 +598,66 @@ def run_cycle(
             f"❌ خطای کلی در اجرای سیکل {group}:\n{e}"
         )
 
-def run_1h_now(bot, chat_id):
+def run_cycle_15m(chat_id):
     cfg = load_config()
-    run_cycle(
-        "1h",
-        bot,
-        chat_id,
-        cfg["initial_symbols"],
-        "1h",
-        cfg["hourly_lookback_days"],
-        cfg["max_bars"],
-        watchlist_enabled=cfg.get("watchlist_enabled_1h", True),
-        notify_bot=bot,
-        notify_chat=chat_id
-    )
-
-def run_all_cycles(bot, chat_id):
-    cfg = load_config()
-
     run_cycle(
         "15m",
-        bot,
         chat_id,
         cfg["initial_symbols"],
         "15m",
-        cfg["fifteenm_lookback_days"],
+        cfg["lookback_15m_days"],
         cfg["max_bars"],
         watchlist_enabled=cfg.get("watchlist_enabled_15m", True),
-        notify_bot=bot,
-        notify_chat=chat_id
+        use_watchlist=True
     )
 
+def run_cycle_1h(chat_id):
+    cfg = load_config()
     run_cycle(
         "1h",
-        bot,
         chat_id,
         cfg["initial_symbols"],
         "1h",
-        cfg["hourly_lookback_days"],
+        cfg["lookback_1h_days"],
         cfg["max_bars"],
         watchlist_enabled=cfg.get("watchlist_enabled_1h", True),
-        notify_bot=bot,
-        notify_chat=chat_id
+        use_watchlist=True
     )
 
+def run_cycle_4h(chat_id):
+    cfg = load_config()
     run_cycle(
         "4h",
-        bot,
         chat_id,
         cfg["initial_symbols"],
         "4h",
-        cfg["fourh_lookback_days"],
+        cfg["lookback_4h_days"],
         cfg["max_bars"],
         watchlist_enabled=cfg.get("watchlist_enabled_4h", True),
-        notify_bot=bot,
-        notify_chat=chat_id
+        use_watchlist=True
     )
 
+def run_cycle_1d(chat_id):
+    cfg = load_config()
     run_cycle(
         "1d",
-        bot,
         chat_id,
         cfg["initial_symbols"],
         "1d",
-        cfg["daily_lookback_days"],
+        cfg["lookback_1d_days"],
         cfg["max_bars"],
         watchlist_enabled=cfg.get("watchlist_enabled_1d", True),
-        notify_bot=bot,
-        notify_chat=chat_id
+        use_watchlist=True
     )
 
+def run_all_cycles(chat_id):
+    run_cycle_15m(chat_id)
+    run_cycle_1h(chat_id)
+    run_cycle_4h(chat_id)
+    run_cycle_1d(chat_id)
+
 # =========================
-# لوپ‌های زمانی با اطمینان بیشتر
+# لوپ‌های زمانی
 # =========================
 
 def safe_sleep(sec):
@@ -682,113 +666,93 @@ def safe_sleep(sec):
     except Exception:
         pass
 
+def loop_15m():
+    while True:
+        try:
+            cfg = load_config()
+            chat_id = cfg.get("chat_id_cycle")
+            if not chat_id:
+                safe_sleep(30)
+                continue
+
+            now = dt.datetime.now()
+            if now.minute % 15 == 0:
+                bot.send_message(chat_id, "⏱ لوپ 15m: شروع سیکل خودکار.")
+                run_cycle_15m(chat_id)
+                safe_sleep(60)
+            safe_sleep(20)
+        except Exception as e:
+            if ADMIN_CHAT:
+                bot.send_message(ADMIN_CHAT, f"❌ خطا در لوپ 15m:\n{e}")
+            safe_sleep(60)
+
 def loop_1h():
     while True:
         try:
             cfg = load_config()
+            chat_id = cfg.get("chat_id_cycle")
+            if not chat_id:
+                safe_sleep(30)
+                continue
+
             now = dt.datetime.now()
-            if now.minute == 30 and bot_1h and cfg.get("chat_id_1h"):
-                run_cycle(
-                    "1h",
-                    bot_1h,
-                    cfg["chat_id_1h"],
-                    cfg["initial_symbols"],
-                    "1h",
-                    cfg["hourly_lookback_days"],
-                    cfg["max_bars"],
-                    watchlist_enabled=cfg.get("watchlist_enabled_1h", True),
-                    notify_bot=bot_1h,
-                    notify_chat=cfg["chat_id_1h"]
-                )
+            if now.minute == 30:
+                bot.send_message(chat_id, "⏱ لوپ 1h: شروع سیکل خودکار.")
+                run_cycle_1h(chat_id)
                 safe_sleep(60)
             safe_sleep(20)
         except Exception as e:
-            if ADMIN_CHAT and bot_1h:
-                bot_1h.send_message(ADMIN_CHAT, f"❌ خطا در لوپ 1h:\n{e}")
+            if ADMIN_CHAT:
+                bot.send_message(ADMIN_CHAT, f"❌ خطا در لوپ 1h:\n{e}")
             safe_sleep(60)
 
 def loop_4h():
-    times = [(4,30),(8,30),(12,30),(16,30),(20,30),(23,30),(0,30)]
+    times = [(4,30),(8,30),(12,30),(16,30),(20,30),(0,30)]
     while True:
         try:
             cfg = load_config()
+            chat_id = cfg.get("chat_id_cycle")
+            if not chat_id:
+                safe_sleep(30)
+                continue
+
             now = dt.datetime.now()
             for h, m in times:
-                if now.hour == h and now.minute == m and bot_4h and cfg.get("chat_id_4h"):
-                    run_cycle(
-                        "4h",
-                        bot_4h,
-                        cfg["chat_id_4h"],
-                        cfg["initial_symbols"],
-                        "4h",
-                        cfg["fourh_lookback_days"],
-                        cfg["max_bars"],
-                        watchlist_enabled=cfg.get("watchlist_enabled_4h", True),
-                        notify_bot=bot_4h,
-                        notify_chat=cfg["chat_id_4h"]
-                    )
+                if now.hour == h and now.minute == m:
+                    bot.send_message(chat_id, "⏱ لوپ 4h: شروع سیکل خودکار.")
+                    run_cycle_4h(chat_id)
                     safe_sleep(60)
             safe_sleep(20)
         except Exception as e:
-            if ADMIN_CHAT and bot_4h:
-                bot_4h.send_message(ADMIN_CHAT, f"❌ خطا در لوپ 4h:\n{e}")
+            if ADMIN_CHAT:
+                bot.send_message(ADMIN_CHAT, f"❌ خطا در لوپ 4h:\n{e}")
             safe_sleep(60)
 
 def loop_1d():
     while True:
         try:
             cfg = load_config()
-            now = dt.datetime.now()
-            if now.hour == 23 and now.minute == 30 and bot_1d and cfg.get("chat_id_1d"):
-                run_cycle(
-                    "1d",
-                    bot_1d,
-                    cfg["chat_id_1d"],
-                    cfg["initial_symbols"],
-                    "1d",
-                    cfg["daily_lookback_days"],
-                    cfg["max_bars"],
-                    watchlist_enabled=cfg.get("watchlist_enabled_1d", True),
-                    notify_bot=bot_1d,
-                    notify_chat=cfg["chat_id_1d"]
-                )
-                safe_sleep(60)
-            safe_sleep(20)
-        except Exception as e:
-            if ADMIN_CHAT and bot_1d:
-                bot_1d.send_message(ADMIN_CHAT, f"❌ خطا در لوپ 1d:\n{e}")
-            safe_sleep(60)
+            chat_id = cfg.get("chat_id_cycle")
+            if not chat_id:
+                safe_sleep(30)
+                continue
 
-def loop_15m():
-    while True:
-        try:
-            cfg = load_config()
             now = dt.datetime.now()
-            if now.minute % 15 == 0 and bot_15m and cfg.get("chat_id_15m"):
-                run_cycle(
-                    "15m",
-                    bot_15m,
-                    cfg["chat_id_15m"],
-                    cfg["initial_symbols"],
-                    "15m",
-                    cfg["fifteenm_lookback_days"],
-                    cfg["max_bars"],
-                    watchlist_enabled=cfg.get("watchlist_enabled_15m", True),
-                    notify_bot=bot_15m,
-                    notify_chat=cfg["chat_id_15m"]
-                )
+            if now.hour == 23 and now.minute == 30:
+                bot.send_message(chat_id, "⏱ لوپ 1d: شروع سیکل خودکار.")
+                run_cycle_1d(chat_id)
                 safe_sleep(60)
             safe_sleep(20)
         except Exception as e:
-            if ADMIN_CHAT and bot_15m:
-                bot_15m.send_message(ADMIN_CHAT, f"❌ خطا در لوپ 15m:\n{e}")
+            if ADMIN_CHAT:
+                bot.send_message(ADMIN_CHAT, f"❌ خطا در لوپ 1d:\n{e}")
             safe_sleep(60)
 
 # =========================
 # نمودار + آلارم تک‌نماد
 # =========================
 
-def process_single_symbol(bot, chat_id, symbol, interval):
+def process_single_symbol(chat_id, symbol, interval):
     try:
         cfg = load_config()
         bot.send_message(
@@ -799,14 +763,21 @@ def process_single_symbol(bot, chat_id, symbol, interval):
         png = f"single_{symbol}_{interval}_{ts}.png"
         html = f"single_{symbol}_{interval}_{ts}.html"
 
-        info = create_plotly_chart(symbol, interval, cfg["hourly_lookback_days"], cfg["max_bars"], png, html)
+        lookback_map = {
+            "15m": cfg["lookback_15m_days"],
+            "1h":  cfg["lookback_1h_days"],
+            "4h":  cfg["lookback_4h_days"],
+            "1d":  cfg["lookback_1d_days"]
+        }
+
+        info = create_plotly_chart(symbol, interval, lookback_map[interval], cfg["max_bars"], png, html)
         alarms = detect_alarms(cfg, info)
 
         caption = f"📊 نمودار {symbol} – {interval}\n"
         if alarms:
             caption += "🔔 آلارم‌ها:\n" + "\n".join(f"• {a}" for a in alarms)
         else:
-            caption += "✅ در این لحظه آلارم فعالی ثبت نشد."
+            caption += "✅ در این لحظه آلارمی فعال نشد."
 
         with open(info["png_path"], "rb") as f:
             bot.send_photo(chat_id, f, caption=caption)
@@ -821,282 +792,301 @@ def process_single_symbol(bot, chat_id, symbol, interval):
 # هندلرها
 # =========================
 
-def register_handlers(bot, bot_name):
+@bot.message_handler(commands=["start"])
+def start_cmd(m):
+    cfg = load_config()
+    cfg["chat_id_cycle"] = m.chat.id
+    cfg["menu_version"] = 2
+    save_config(cfg)
+    STATE[m.chat.id] = None
+    bot.send_message(m.chat.id, "✅ ربات فعال شد و این چت به‌عنوان چت اصلی سیکل‌ها ثبت شد.")
+    send_main_menu(m.chat.id, page=1)
 
-    @bot.message_handler(commands=["start"])
-    def start_cmd(m):
+@bot.message_handler(func=lambda m: True)
+def msg_router(m):
+    chat_id = m.chat.id
+    text = (m.text or "").strip()
+    state = STATE.get(chat_id)
+
+    if text == MAIN_PAGE_1_NEXT:
+        send_main_menu(chat_id, page=2)
+        STATE[chat_id] = None
+        return
+    if text == MAIN_PAGE_2_PREV:
+        send_main_menu(chat_id, page=1)
+        STATE[chat_id] = None
+        return
+    if text == MAIN_PAGE_2_NEXT:
+        send_main_menu(chat_id, page=3)
+        STATE[chat_id] = None
+        return
+    if text == MAIN_PAGE_3_PREV:
+        send_main_menu(chat_id, page=2)
+        STATE[chat_id] = None
+        return
+
+    if text == MAIN_PAGE_3_RESET:
+        STATE[chat_id] = None
+        send_main_menu(chat_id, page=1)
+        return
+
+    if text == MAIN_PAGE_1_LIST:
         cfg = load_config()
-        cfg[f"chat_id_{bot_name}"] = m.chat.id
-        cfg["menu_version"] = 2
+        txt = "📋 لیست ارزهای بررسی:\n\n" + ", ".join(cfg["initial_symbols"])
+        bot.send_message(chat_id, txt)
+        return
+
+    if text == MAIN_PAGE_2_CLEAR_WL:
+        cfg = load_config()
+        cfg["wl_15m"] = []
+        cfg["wl_1h"] = []
+        cfg["wl_4h"] = []
+        cfg["wl_1d"] = []
         save_config(cfg)
-        STATE[bot_name][m.chat.id] = None
-        send_main_menu(bot, m.chat.id, page=1)
+        bot.send_message(chat_id, "🧹 واچ‌لیست‌ها صفر شدند.")
+        return
 
-    @bot.message_handler(func=lambda m: True)
-    def msg_router(m):
-        chat_id = m.chat.id
-        text = (m.text or "").strip()
-        state = STATE[bot_name].get(chat_id)
+    if text == MAIN_PAGE_1:
+        bot.send_message(chat_id, "نماد را وارد کنید (مثلاً BTCUSDT):")
+        STATE[chat_id] = "await_single_symbol"
+        return
 
-        if text == MAIN_PAGE_1_NEXT:
-            send_main_menu(bot, chat_id, page=2)
-            STATE[bot_name][chat_id] = None
+    if text == MAIN_PAGE_1_WL:
+        bot.send_message(chat_id, "واچ‌لیست مورد نظر را انتخاب کنید:", reply_markup=build_watchlist_menu())
+        STATE[chat_id] = "watchlists_menu"
+        return
+
+    if STATE.get(chat_id) == "watchlists_menu":
+        cfg = load_config()
+        key_map = {
+            WL_15M: ("wl_15m", "watchlist_enabled_15m", "15m"),
+            WL_1H:  ("wl_1h",  "watchlist_enabled_1h",  "1h"),
+            WL_4H:  ("wl_4h",  "watchlist_enabled_4h",  "4h"),
+            WL_1D:  ("wl_1d",  "watchlist_enabled_1d",  "1d"),
+        }
+        if text == WL_BACK:
+            send_main_menu(chat_id, page=1)
+            STATE[chat_id] = None
             return
-        if text == MAIN_PAGE_2_PREV:
-            send_main_menu(bot, chat_id, page=1)
-            STATE[bot_name][chat_id] = None
-            return
-        if text == MAIN_PAGE_2_NEXT:
-            send_main_menu(bot, chat_id, page=3)
-            STATE[bot_name][chat_id] = None
-            return
-        if text == MAIN_PAGE_3_PREV:
-            send_main_menu(bot, chat_id, page=2)
-            STATE[bot_name][chat_id] = None
-            return
-
-        if text == MAIN_PAGE_3_RESET:
-            STATE[bot_name][chat_id] = None
-            send_main_menu(bot, chat_id, page=1)
-            return
-
-        if text == MAIN_PAGE_1_LIST:
-            cfg = load_config()
-            txt = "📋 لیست ارزهای بررسی:\n\n" + ", ".join(cfg["initial_symbols"])
-            bot.send_message(chat_id, txt)
-            return
-
-        if text == MAIN_PAGE_2_CLEAR_WL:
-            cfg = load_config()
-            cfg["hourly_symbols"] = []
-            cfg["fourh_symbols"] = []
-            cfg["daily_symbols"] = []
-            cfg["fifteenm_symbols"] = []
-            save_config(cfg)
-            bot.send_message(chat_id, "🧹 واچ‌لیست‌ها صفر شدند.")
-            return
-
-        if text == MAIN_PAGE_1:
-            bot.send_message(chat_id, "نماد را وارد کنید (مثلاً BTCUSDT):")
-            STATE[bot_name][chat_id] = "await_single_symbol"
-            return
-
-        if text == MAIN_PAGE_1_WL:
-            bot.send_message(chat_id, "واچ‌لیست مورد نظر را انتخاب کنید:", reply_markup=build_watchlist_menu())
-            STATE[bot_name][chat_id] = "watchlists_menu"
-            return
-
-        if STATE[bot_name].get(chat_id) == "watchlists_menu":
-            cfg = load_config()
-            key_map = {
-                WL_15M: ("fifteenm_symbols", "watchlist_enabled_15m", "15m"),
-                WL_1H:  ("hourly_symbols",   "watchlist_enabled_1h",  "1h"),
-                WL_4H:  ("fourh_symbols",    "watchlist_enabled_4h",  "4h"),
-                WL_1D:  ("daily_symbols",    "watchlist_enabled_1d",  "1d"),
-            }
-            if text == WL_BACK:
-                send_main_menu(bot, chat_id, page=1)
-                STATE[bot_name][chat_id] = None
-                return
-            if text in key_map:
-                sym_key, flag_key, tf = key_map[text]
-                syms = cfg[sym_key]
-                enabled = cfg[flag_key]
-                txt = f"👁 واچ‌لیست {tf}:\n\n"
-                txt += (", ".join(syms) if syms else "خالی") + "\n\n"
-                txt += f"🔔 آلارم: {'روشن' if enabled else 'خاموش'}\n\n"
-                txt += "➕ افزودن نماد: ارسال نماد (مثلاً BTCUSDT)\n"
-                txt += "➖ حذف نماد: ارسال -BTCUSDT\n"
-                txt += "🔔 روشن/خاموش: ارسال «روشن» یا «خاموش»\n"
-                bot.send_message(chat_id, txt, reply_markup=build_watchlist_menu())
-                STATE[bot_name][chat_id] = ("edit_watchlist", sym_key, flag_key)
-                return
-
-        if isinstance(state, tuple) and state[0] == "edit_watchlist":
-            sym_key, flag_key = state[1], state[2]
-            cfg = load_config()
-            t_raw = text.strip()
-            t = t_raw.upper()
-
-            if t_raw in ALL_MENU_TEXTS:
-                if t_raw == WL_BACK:
-                    send_main_menu(bot, chat_id, page=1)
-                    STATE[bot_name][chat_id] = None
-                return
-
-            if t_raw == "روشن":
-                cfg[flag_key] = True
-                save_config(cfg)
-                bot.send_message(chat_id, "🔔 آلارم روشن شد.")
-                return
-
-            if t_raw == "خاموش":
-                cfg[flag_key] = False
-                save_config(cfg)
-                bot.send_message(chat_id, "🔕 آلارم خاموش شد.")
-                return
-
+        if text in key_map:
+            sym_key, flag_key, tf = key_map[text]
             syms = cfg[sym_key]
+            enabled = cfg[flag_key]
+            txt = f"👁 واچ‌لیست {tf}:\n\n"
+            txt += (", ".join(syms) if syms else "خالی") + "\n\n"
+            txt += f"🔔 آلارم: {'روشن' if enabled else 'خاموش'}\n\n"
+            txt += "➕ افزودن نماد: ارسال نماد (مثلاً BTCUSDT)\n"
+            txt += "➖ حذف نماد: ارسال -BTCUSDT\n"
+            txt += "🔔 روشن/خاموش: ارسال «روشن» یا «خاموش»\n"
+            bot.send_message(chat_id, txt, reply_markup=build_watchlist_menu())
+            STATE[chat_id] = ("edit_watchlist", sym_key, flag_key)
+            return
 
-            if t.startswith("-"):
-                sym = t[1:]
-                if not SYMBOL_PATTERN.match(sym):
-                    bot.send_message(chat_id, "⚠ فرمت نماد برای حذف صحیح نیست. مثال: -BTCUSDT")
-                    return
-                if sym in syms:
-                    syms.remove(sym)
-                    cfg[sym_key] = syms
-                    save_config(cfg)
-                    bot.send_message(chat_id, f"❌ {sym} از واچ‌لیست حذف شد.")
-                else:
-                    bot.send_message(chat_id, f"⚠ {sym} در واچ‌لیست وجود ندارد.")
+    if isinstance(state, tuple) and state[0] == "edit_watchlist":
+        sym_key, flag_key = state[1], state[2]
+        cfg = load_config()
+        t_raw = text.strip()
+        t = t_raw.upper()
+
+        if t_raw in ALL_MENU_TEXTS:
+            if t_raw == WL_BACK:
+                send_main_menu(chat_id, page=1)
+                STATE[chat_id] = None
+            return
+
+        if t_raw == "روشن":
+            cfg[flag_key] = True
+            save_config(cfg)
+            bot.send_message(chat_id, "🔔 آلارم روشن شد.")
+            return
+
+        if t_raw == "خاموش":
+            cfg[flag_key] = False
+            save_config(cfg)
+            bot.send_message(chat_id, "🔕 آلارم خاموش شد.")
+            return
+
+        syms = cfg[sym_key]
+
+        if t.startswith("-"):
+            sym = t[1:]
+            if not SYMBOL_PATTERN.match(sym):
+                bot.send_message(chat_id, "⚠ فرمت نماد برای حذف صحیح نیست. مثال: -BTCUSDT")
                 return
-
-            if not SYMBOL_PATTERN.match(t):
-                bot.send_message(chat_id, "⚠ فرمت نماد صحیح نیست. مثال: BTCUSDT\nفقط حروف و عدد + USDT مجاز است.")
-                return
-
-            sym = t
-            if sym not in syms:
-                syms.append(sym)
+            if sym in syms:
+                syms.remove(sym)
                 cfg[sym_key] = syms
                 save_config(cfg)
-                bot.send_message(chat_id, f"✅ {sym} به واچ‌لیست اضافه شد.")
+                bot.send_message(chat_id, f"❌ {sym} از واچ‌لیست حذف شد.")
             else:
-                bot.send_message(chat_id, f"ℹ {sym} قبلاً در واچ‌لیست وجود دارد.")
+                bot.send_message(chat_id, f"⚠ {sym} در واچ‌لیست وجود ندارد.")
             return
 
-        if state == "await_single_symbol":
-            symbol = text.strip().upper()
-            if not SYMBOL_PATTERN.match(symbol):
-                bot.send_message(chat_id, "⚠ فرمت نماد صحیح نیست. مثال: BTCUSDT")
-                return
-            STATE[bot_name][chat_id] = ("single_symbol_tf", symbol)
-            bot.send_message(chat_id, "⏱ تایم‌فریم را انتخاب کنید:", reply_markup=build_tf_menu())
+        if not SYMBOL_PATTERN.match(t):
+            bot.send_message(chat_id, "⚠ فرمت نماد صحیح نیست. مثال: BTCUSDT\nفقط حروف و عدد + USDT مجاز است.")
             return
 
-        if isinstance(state, tuple) and state[0] == "single_symbol_tf":
-            symbol = state[1]
-            if text == TF_BACK:
-                send_main_menu(bot, chat_id, page=1)
-                STATE[bot_name][chat_id] = None
-                return
-            tf_map = {
-                TF_15M: "15m",
-                TF_1H:  "1h",
-                TF_4H:  "4h",
-                TF_1D:  "1d"
-            }
-            if text in tf_map:
-                interval = tf_map[text]
-                process_single_symbol(bot, chat_id, symbol, interval)
-                send_main_menu(bot, chat_id, page=1)
-                STATE[bot_name][chat_id] = None
-                return
+        sym = t
+        if sym not in syms:
+            syms.append(sym)
+            cfg[sym_key] = syms
+            save_config(cfg)
+            bot.send_message(chat_id, f"✅ {sym} به واچ‌لیست اضافه شد.")
+        else:
+            bot.send_message(chat_id, f"ℹ {sym} قبلاً در واچ‌لیست وجود دارد.")
+        return
 
-        if text == MAIN_PAGE_1_START:
-            bot.send_message(chat_id, "⏳ شروع چرخه‌های کامل...")
-            run_all_cycles(bot, chat_id)
-            STATE[bot_name][chat_id] = None
+    if state == "await_single_symbol":
+        symbol = text.strip().upper()
+        if not SYMBOL_PATTERN.match(symbol):
+            bot.send_message(chat_id, "⚠ فرمت نماد صحیح نیست. مثال: BTCUSDT")
+            return
+        STATE[chat_id] = ("single_symbol_tf", symbol)
+        bot.send_message(chat_id, "⏱ تایم‌فریم را انتخاب کنید:", reply_markup=build_tf_menu())
+        return
+
+    if isinstance(state, tuple) and state[0] == "single_symbol_tf":
+        symbol = state[1]
+        if text == TF_BACK:
+            send_main_menu(chat_id, page=1)
+            STATE[chat_id] = None
+            return
+        tf_map = {
+            TF_15M: "15m",
+            TF_1H:  "1h",
+            TF_4H:  "4h",
+            TF_1D:  "1d"
+        }
+        if text in tf_map:
+            interval = tf_map[text]
+            process_single_symbol(chat_id, symbol, interval)
+            send_main_menu(chat_id, page=1)
+            STATE[chat_id] = None
             return
 
-        if text == MAIN_PAGE_1_RUN1H:
-            bot.send_message(chat_id, "⚡ اجرای فوری سیکل ۱h...")
-            run_1h_now(bot, chat_id)
-            STATE[bot_name][chat_id] = None
-            return
+    if text == MAIN_PAGE_1_START_ALL:
+        bot.send_message(chat_id, "⏳ شروع چرخه‌های کامل (15m + 1h + 4h + 1d)...")
+        run_all_cycles(chat_id)
+        STATE[chat_id] = None
+        return
 
-        if text == MAIN_PAGE_1_LOOPS:
-            cfg = load_config()
-            txt = "⏱ وضعیت لوپ‌های زمانی:\n\n"
-            txt += f"15m: {'فعال' if cfg.get('chat_id_15m') else 'غیرفعال'}\n"
-            txt += f"1h: {'فعال' if cfg.get('chat_id_1h') else 'غیرفعال'}\n"
-            txt += f"4h: {'فعال' if cfg.get('chat_id_4h') else 'غیرفعال'}\n"
-            txt += f"1d: {'فعال' if cfg.get('chat_id_1d') else 'غیرفعال'}\n"
+    if text == MAIN_PAGE_1_RUN_15M:
+        bot.send_message(chat_id, "⚡ اجرای فوری سیکل 15m...")
+        run_cycle_15m(chat_id)
+        STATE[chat_id] = None
+        return
+
+    if text == MAIN_PAGE_1_RUN_1H:
+        bot.send_message(chat_id, "⚡ اجرای فوری سیکل 1h...")
+        run_cycle_1h(chat_id)
+        STATE[chat_id] = None
+        return
+
+    if text == MAIN_PAGE_1_RUN_4H:
+        bot.send_message(chat_id, "⚡ اجرای فوری سیکل 4h...")
+        run_cycle_4h(chat_id)
+        STATE[chat_id] = None
+        return
+
+    if text == MAIN_PAGE_1_RUN_1D:
+        bot.send_message(chat_id, "⚡ اجرای فوری سیکل 1d...")
+        run_cycle_1d(chat_id)
+        STATE[chat_id] = None
+        return
+
+    if text == MAIN_PAGE_1_LOOPS:
+        cfg = load_config()
+        txt = "⏱ وضعیت لوپ‌های زمانی:\n\n"
+        txt += f"چت سیکل: {'ثبت شده' if cfg.get('chat_id_cycle') else 'ثبت نشده'}\n"
+        txt += "15m: فعال (هر ۱۵ دقیقه)\n"
+        txt += "1h: فعال (هر ساعت دقیقه ۳۰)\n"
+        txt += "4h: فعال (۴،۸،۱۲،۱۶،۲۰،۰:۳۰)\n"
+        txt += "1d: فعال (۲۳:۳۰)\n"
+        bot.send_message(chat_id, txt)
+        return
+
+    if text == MAIN_PAGE_2_ALARMS:
+        cfg = load_config()
+        txt = "🔔 تنظیم آلارم‌ها (config.json):\n\n"
+        txt += f"alarm_wma_direction = {cfg['alarm_wma_direction']}\n"
+        txt += f"alarm_cross_sma20   = {cfg['alarm_cross_sma20']}\n"
+        txt += f"alarm_cross_sma100  = {cfg['alarm_cross_sma100']}\n"
+        txt += f"alarm_cross_sma200  = {cfg['alarm_cross_sma200']}\n"
+        txt += f"alarm_sma20_direction  = {cfg['alarm_sma20_direction']}\n"
+        txt += f"alarm_sma100_direction = {cfg['alarm_sma100_direction']}\n"
+        txt += f"alarm_sma200_direction = {cfg['alarm_sma200_direction']}\n"
+        bot.send_message(chat_id, txt)
+        return
+
+    if text == MAIN_PAGE_2_ADV:
+        cfg = load_config()
+        txt = "⚙ تنظیمات پیشرفته:\n\n"
+        txt += f"max_bars = {cfg['max_bars']}\n"
+        txt += f"lookback_15m_days = {cfg['lookback_15m_days']}\n"
+        txt += f"lookback_1h_days  = {cfg['lookback_1h_days']}\n"
+        txt += f"lookback_4h_days  = {cfg['lookback_4h_days']}\n"
+        txt += f"lookback_1d_days  = {cfg['lookback_1d_days']}\n"
+        bot.send_message(chat_id, txt)
+        return
+
+    if text == MAIN_PAGE_2_LAST:
+        if not LAST_ALARMS:
+            bot.send_message(chat_id, "هیچ آلارمی ثبت نشده است.")
+        else:
+            txt = "📑 آخرین آلارم‌ها:\n\n"
+            for item in LAST_ALARMS[-20:]:
+                txt += f"{item['time']} – {item['symbol']} ({item['interval']}):\n"
+                for a in item["alarms"]:
+                    txt += f"  • {a}\n"
+                txt += "\n"
             bot.send_message(chat_id, txt)
-            return
+        return
 
-        if text == MAIN_PAGE_2_ALARMS:
-            cfg = load_config()
-            txt = "🔔 تنظیم آلارم‌ها (config.json):\n\n"
-            txt += f"alarm_wma_direction = {cfg['alarm_wma_direction']}\n"
-            txt += f"alarm_cross_sma20   = {cfg['alarm_cross_sma20']}\n"
-            txt += f"alarm_cross_sma100  = {cfg['alarm_cross_sma100']}\n"
-            txt += f"alarm_cross_sma200  = {cfg['alarm_cross_sma200']}\n"
-            txt += f"alarm_sma20_direction  = {cfg['alarm_sma20_direction']}\n"
-            txt += f"alarm_sma100_direction = {cfg['alarm_sma100_direction']}\n"
-            txt += f"alarm_sma200_direction = {cfg['alarm_sma200_direction']}\n"
-            bot.send_message(chat_id, txt)
-            return
+    if text == MAIN_PAGE_2_PDF:
+        cfg = load_config()
+        txt = "📄 وضعیت PDF:\n\n"
+        txt += f"make_pdf = {cfg.get('make_pdf', True)}\n"
+        bot.send_message(chat_id, txt)
+        return
 
-        if text == MAIN_PAGE_2_ADV:
-            cfg = load_config()
-            txt = "⚙ تنظیمات پیشرفته:\n\n"
-            txt += f"max_bars = {cfg['max_bars']}\n"
-            txt += f"hourly_lookback_days   = {cfg['hourly_lookback_days']}\n"
-            txt += f"fourh_lookback_days    = {cfg['fourh_lookback_days']}\n"
-            txt += f"daily_lookback_days    = {cfg['daily_lookback_days']}\n"
-            txt += f"fifteenm_lookback_days = {cfg['fifteenm_lookback_days']}\n"
-            bot.send_message(chat_id, txt)
-            return
+    if text == MAIN_PAGE_2_CFG:
+        cfg = load_config()
+        txt = "📦 وضعیت کانفیگ:\n\n"
+        txt += f"menu_version = {cfg.get('menu_version', 1)}\n"
+        txt += f"initial_symbols = {len(cfg.get('initial_symbols', []))} نماد\n"
+        txt += f"chat_id_cycle = {cfg.get('chat_id_cycle')}\n"
+        bot.send_message(chat_id, txt)
+        return
 
-        if text == MAIN_PAGE_2_LAST:
-            if not LAST_ALARMS:
-                bot.send_message(chat_id, "هیچ آلارمی ثبت نشده است.")
+    if text == MAIN_PAGE_3_HELP:
+        txt = "❓ راهنما:\n\n"
+        txt += "صفحه ۱: نمودار+آلارم تک‌نماد، لیست ارزها، واچ‌لیست‌ها، شروع چرخه‌ها، اجرای فوری ۱۵/۱/۴/۱ روزه، وضعیت لوپ‌ها\n"
+        txt += "صفحه ۲: صفر کردن واچ‌لیست‌ها، تنظیم آلارم‌ها، تنظیمات پیشرفته، آخرین آلارم‌ها، وضعیت PDF، وضعیت کانفیگ\n"
+        txt += "صفحه ۳: راهنما، ریست، تست نمودار BTCUSDT، تست آلارم‌ها\n"
+        bot.send_message(chat_id, txt)
+        return
+
+    if text == MAIN_PAGE_3_TEST_CHART:
+        process_single_symbol(chat_id, "BTCUSDT", "1h")
+        return
+
+    if text == MAIN_PAGE_3_TEST_ALARMS:
+        cfg = load_config()
+        ts = now_utc().strftime("%Y%m%d_%H%M%S")
+        png = f"test_BTCUSDT_1h_{ts}.png"
+        html = f"test_BTCUSDT_1h_{ts}.html"
+        try:
+            info = create_plotly_chart("BTCUSDT", "1h", cfg["lookback_1h_days"], cfg["max_bars"], png, html)
+            alarms = detect_alarms(cfg, info)
+            txt = "🧪 تست آلارم‌ها برای BTCUSDT – 1h:\n\n"
+            if alarms:
+                txt += "\n".join(f"• {a}" for a in alarms)
             else:
-                txt = "📑 آخرین آلارم‌ها:\n\n"
-                for item in LAST_ALARMS[-20:]:
-                    txt += f"{item['time']} – {item['symbol']} ({item['interval']}):\n"
-                    for a in item["alarms"]:
-                        txt += f"  • {a}\n"
-                    txt += "\n"
-                bot.send_message(chat_id, txt)
-            return
-
-        if text == MAIN_PAGE_2_PDF:
-            cfg = load_config()
-            txt = "📄 وضعیت PDF:\n\n"
-            txt += f"make_pdf = {cfg.get('make_pdf', True)}\n"
+                txt += "در این لحظه آلارمی فعال نشد."
             bot.send_message(chat_id, txt)
-            return
-
-        if text == MAIN_PAGE_2_CFG:
-            cfg = load_config()
-            txt = "📦 وضعیت کانفیگ:\n\n"
-            txt += f"menu_version = {cfg.get('menu_version', 1)}\n"
-            txt += f"initial_symbols = {len(cfg.get('initial_symbols', []))} نماد\n"
-            bot.send_message(chat_id, txt)
-            return
-
-        if text == MAIN_PAGE_3_HELP:
-            txt = "❓ راهنما:\n\n"
-            txt += "صفحه ۱: نمودار+آلارم تک‌نماد، لیست ارزها، واچ‌لیست‌ها، شروع چرخه‌ها، اجرای فوری ۱h، وضعیت لوپ‌ها\n"
-            txt += "صفحه ۲: صفر کردن واچ‌لیست‌ها، تنظیم آلارم‌ها، تنظیمات پیشرفته، آخرین آلارم‌ها، وضعیت PDF، وضعیت کانفیگ\n"
-            txt += "صفحه ۳: راهنما، ریست، تست نمودار BTCUSDT، تست آلارم‌ها\n"
-            bot.send_message(chat_id, txt)
-            return
-
-        if text == MAIN_PAGE_3_TEST_CHART:
-            process_single_symbol(bot, chat_id, "BTCUSDT", "1h")
-            return
-
-        if text == MAIN_PAGE_3_TEST_ALARMS:
-            cfg = load_config()
-            ts = now_utc().strftime("%Y%m%d_%H%M%S")
-            png = f"test_BTCUSDT_1h_{ts}.png"
-            html = f"test_BTCUSDT_1h_{ts}.html"
-            try:
-                info = create_plotly_chart("BTCUSDT", "1h", cfg["hourly_lookback_days"], cfg["max_bars"], png, html)
-                alarms = detect_alarms(cfg, info)
-                txt = "🧪 تست آلارم‌ها برای BTCUSDT – 1h:\n\n"
-                if alarms:
-                    txt += "\n".join(f"• {a}" for a in alarms)
-                else:
-                    txt += "در این لحظه آلارمی فعال نشد."
-                bot.send_message(chat_id, txt)
-            except Exception as e:
-                bot.send_message(chat_id, f"❌ خطا در تست آلارم‌ها:\n{e}")
-            return
+        except Exception as e:
+            bot.send_message(chat_id, f"❌ خطا در تست آلارم‌ها:\n{e}")
+        return
 
 # =========================
 # اجرای نهایی
@@ -1106,36 +1096,13 @@ if __name__ == "__main__":
 
     try:
         if ADMIN_CHAT:
-            if bot_1h:
-                bot_1h.send_message(ADMIN_CHAT, "✅ ربات 1h راه‌اندازی شد.")
-            if bot_4h:
-                bot_4h.send_message(ADMIN_CHAT, "✅ ربات 4h راه‌اندازی شد.")
-            if bot_1d:
-                bot_1d.send_message(ADMIN_CHAT, "✅ ربات 1d راه‌اندازی شد.")
-            if bot_15m:
-                bot_15m.send_message(ADMIN_CHAT, "✅ ربات 15m راه‌اندازی شد.")
+            bot.send_message(ADMIN_CHAT, "✅ ربات Modu Bazler – Single Bot v10 راه‌اندازی شد.")
     except Exception:
         pass
 
-    if bot_1h:
-        register_handlers(bot_1h, "1h")
-        threading.Thread(target=bot_1h.infinity_polling, daemon=True).start()
-        threading.Thread(target=loop_1h, daemon=True).start()
+    threading.Thread(target=loop_15m, daemon=True).start()
+    threading.Thread(target=loop_1h, daemon=True).start()
+    threading.Thread(target=loop_4h, daemon=True).start()
+    threading.Thread(target=loop_1d, daemon=True).start()
 
-    if bot_4h:
-        register_handlers(bot_4h, "4h")
-        threading.Thread(target=bot_4h.infinity_polling, daemon=True).start()
-        threading.Thread(target=loop_4h, daemon=True).start()
-
-    if bot_1d:
-        register_handlers(bot_1d, "1d")
-        threading.Thread(target=bot_1d.infinity_polling, daemon=True).start()
-        threading.Thread(target=loop_1d, daemon=True).start()
-
-    if bot_15m:
-        register_handlers(bot_15m, "15m")
-        threading.Thread(target=bot_15m.infinity_polling, daemon=True).start()
-        threading.Thread(target=loop_15m, daemon=True).start()
-
-    while True:
-        safe_sleep(60)
+    bot.infinity_polling()
