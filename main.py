@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Modu Bazler – main.py (نسخهٔ جدید با واچ‌لیست چندرباته و منوی پیشرفته)
+# Modu Bazler – main.py (نسخهٔ پیشرفته با واچ‌لیست‌ها و کنترل آلارم‌ها)
 
 import os, json, time, threading, datetime as dt
 import requests, numpy as np, pandas as pd
@@ -53,13 +53,6 @@ DEFAULT_CONFIG = {
         "NEOUSDT","GALAUSDT","SEIUSDT","TIAUSDT","PYTHUSDT","JTOUSDT","WIFUSDT","JUPUSDT","STRKUSDT","BLURUSDT",
         "RUNEUSDT","RAYUSDT","LDOUSDT","COMPUSDT","CRVUSDT","MKRUSDT","SNXUSDT","GMXUSDT","DYDXUSDT","ENSUSDT"
     ],
-
-    # واچ‌لیست‌های جدا برای هر ربات
-    "hourly_watchlist": [],
-    "fourh_watchlist": [],
-    "daily_watchlist": [],
-    "fifteenm_watchlist": [],
-
     "hourly_interval": "1h",
     "fourh_interval": "4h",
     "daily_interval": "1d",
@@ -70,6 +63,7 @@ DEFAULT_CONFIG = {
     "fifteenm_lookback_days": 3,
     "max_bars": 300,
 
+    # آلارم‌ها
     "alarm_wma_direction": True,
     "alarm_cross_sma20": False,
     "alarm_cross_sma100": False,
@@ -78,15 +72,27 @@ DEFAULT_CONFIG = {
     "alarm_sma100_direction": False,
     "alarm_sma200_direction": False,
 
+    # PDF
     "make_pdf": False,
 
+    # چت‌ها
     "chat_id_1h": None,
     "chat_id_4h": None,
     "chat_id_1d": None,
     "chat_id_15m": None,
 
-    # تعداد نمادهایی که بعد از آن پیام پیشرفت سیکل داده می‌شود
-    "progress_step": 5
+    # واچ‌لیست‌ها (هر ربات جدا)
+    # ساختار: { "BTCUSDT": {"price": 12345.0, "added_at": "YYYY-MM-DD HH:MM:SS"} }
+    "watchlist_1h": {},
+    "watchlist_4h": {},
+    "watchlist_1d": {},
+    "watchlist_15m": {},
+
+    # تعداد سیکل‌هایی که وضعیت واچ‌لیست به ربات واچ‌لیست ارسال شود
+    "watchlist_status_every_cycles": 4,
+
+    # اندازه‌ی دسته برای پیام پیشرفت سیکل
+    "cycle_progress_batch": 5
 }
 
 def save_config(cfg: dict):
@@ -137,58 +143,57 @@ bot_1d  = create_bot(TOKEN_1D)
 bot_15m = create_bot(TOKEN_15M)
 
 # =========================
-# راهنما با زمان‌بندی سیکل‌ها
+# متن راهنما (با توضیح زمان‌بندی)
 # =========================
 
 HELP_TEXT = """
-Modu Bazler – نسخه جدید با سیستم آلارم پیشرفته و واچ‌لیست چندرباته
+Modu Bazler – نسخه پیشرفته با سیستم آلارم و واچ‌لیست‌ها
 
 دستورات:
 /start – ثبت چت و نمایش منو
 /refresh – رفرش منو
-/reset_all – ریست کامل تنظیمات و آلارم‌ها
+/reset_app – ریست کامل تنظیمات و واچ‌لیست‌ها
 
-/start_cycle – شروع چرخه ۱ساعته (خودکار: هر روز ساعت xx:30، در این نسخه: دقیقه ۳۰ هر ساعت)
-/start_cycle_4h – شروع چرخه ۴ساعته (خودکار: 4:30، 8:30، 12:30، 16:30، 20:30، 23:30، 0:30)
-/start_cycle_1d – شروع چرخه روزانه (خودکار: 23:30)
-/start_cycle_15m – شروع چرخه ۱۵دقیقه‌ای (خودکار: هر ۱۵ دقیقه)
+سیکل‌ها:
+/start_cycle – شروع چرخه ۱ساعته (اجرای فوری)
+/start_cycle_4h – شروع چرخه ۴ساعته (اجرای فوری)
+/start_cycle_1d – شروع چرخه روزانه (اجرای فوری)
+/start_cycle_15m – شروع چرخه ۱۵دقیقه‌ای (اجرای فوری)
 
-منو:
-- چک یک نماد (ساده)
-- بررسی تک نماد (پیشرفته)
-- اجرای فوری سیکل 1h
-- اجرای فوری سیکل 4h
-- اجرای فوری سیکل 1d
-- اجرای فوری سیکل 15m
-- مدیریت واچ‌لیست 1h
-- مدیریت واچ‌لیست 4h
-- مدیریت واچ‌لیست 1d
-- مدیریت واچ‌لیست 15m
+زمان‌بندی خودکار:
+- 1h: هر ساعت در دقیقه 30
+- 4h: در ساعات 4:30، 8:30، 12:30، 16:30، 20:30، 23:30، 0:30
+- 1d: هر روز ساعت 23:30
+- 15m: هر 15 دقیقه (دقیقه‌های 0، 15، 30، 45)
+
+منو اصلی:
+- چک یک نماد (پیشرفته)
+- اجرای دستی 1h
+- واچ‌لیست 1h
+- تنظیم آلارم‌ها
+- بازنشانی نمادها
 - ریست واچ‌لیست‌ها
-- ریست برنامه
 - راهنما
 - رفرش منو
+- شروع چرخه‌ها
 - وضعیت سیستم
 - گزارش آلارم‌ها
+- تنظیمات پیشرفته
 """
 
 # =========================
-# منوی اصلی
+# منوها
 # =========================
 
 def send_main_menu(bot, chat_id):
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
 
-    kb.row("چک یک نماد", "بررسی تک نماد (پیشرفته)")
-    kb.row("اجرای فوری سیکل 1h", "اجرای فوری سیکل 4h")
-    kb.row("اجرای فوری سیکل 1d", "اجرای فوری سیکل 15m")
-
-    kb.row("مدیریت واچ‌لیست 1h", "مدیریت واچ‌لیست 4h")
-    kb.row("مدیریت واچ‌لیست 1d", "مدیریت واچ‌لیست 15m")
-
-    kb.row("ریست واچ‌لیست‌ها", "ریست برنامه")
+    kb.row("چک یک نماد", "اجرای دستی 1h")
+    kb.row("واچ‌لیست 1h", "ریست واچ‌لیست‌ها")
+    kb.row("تنظیم آلارم‌ها", "بازنشانی نمادها")
     kb.row("راهنما", "رفرش منو")
-    kb.row("وضعیت سیستم", "گزارش آلارم‌ها")
+    kb.row("شروع چرخه‌ها", "وضعیت سیستم")
+    kb.row("گزارش آلارم‌ها", "تنظیمات پیشرفته")
 
     bot.send_message(chat_id, "منوی اصلی:", reply_markup=kb)
 
@@ -196,10 +201,8 @@ def refresh_menu(bot, chat_id):
     send_main_menu(bot, chat_id)
 
 # =========================
-# هندلرهای /start و /refresh و /reset_all
+# هندلرهای /start و /refresh و /reset_app
 # =========================
-
-LAST_ALARMS = []
 
 if bot_1h:
     @bot_1h.message_handler(commands=["start"])
@@ -214,14 +217,12 @@ if bot_1h:
     def refresh_1h(m):
         refresh_menu(bot_1h, m.chat.id)
 
-    @bot_1h.message_handler(commands=["reset_all"])
-    def reset_all_1h(m):
-        global LAST_ALARMS
-        LAST_ALARMS = []
+    @bot_1h.message_handler(commands=["reset_app"])
+    def reset_app_1h(m):
         cfg = reset_config()
         cfg["chat_id_1h"] = m.chat.id
         save_config(cfg)
-        bot_1h.send_message(m.chat.id, "برنامه و تنظیمات به حالت اولیه ریست شد.")
+        bot_1h.send_message(m.chat.id, "برنامه و واچ‌لیست‌ها ریست شدند.")
         refresh_menu(bot_1h, m.chat.id)
 
 if bot_4h:
@@ -247,6 +248,253 @@ if bot_15m:
         cfg["chat_id_15m"] = m.chat.id
         save_config(cfg)
         bot_15m.send_message(m.chat.id, "ربات ۱۵دقیقه‌ای فعال شد.\n" + now_utc_str())
+
+# =========================
+# واچ‌لیست‌ها – توابع کمکی
+# =========================
+
+def get_watchlist(cfg, group: str) -> dict:
+    key = f"watchlist_{group}"
+    return cfg.get(key, {})
+
+def set_watchlist(cfg, group: str, wl: dict):
+    key = f"watchlist_{group}"
+    cfg[key] = wl
+
+def add_to_watchlist(cfg, group: str, symbol: str, price: float):
+    wl = get_watchlist(cfg, group)
+    wl[symbol] = {
+        "price": float(price),
+        "added_at": now_utc_str()
+    }
+    set_watchlist(cfg, group, wl)
+    save_config(cfg)
+
+def remove_from_watchlist(cfg, group: str, symbol: str):
+    wl = get_watchlist(cfg, group)
+    if symbol in wl:
+        wl.pop(symbol)
+        set_watchlist(cfg, group, wl)
+        save_config(cfg)
+
+def reset_watchlists(cfg):
+    cfg["watchlist_1h"] = {}
+    cfg["watchlist_4h"] = {}
+    cfg["watchlist_1d"] = {}
+    cfg["watchlist_15m"] = {}
+    save_config(cfg)
+
+# =========================
+# هندلرهای منوی 1h (پیشرفته)
+# =========================
+
+if bot_1h:
+
+    @bot_1h.message_handler(func=lambda m: m.text == "چک یک نماد")
+    def check_symbol(m):
+        msg = bot_1h.send_message(m.chat.id, "نماد مورد نظر را وارد کنید (مثلاً BTCUSDT):")
+        bot_1h.register_next_step_handler(msg, process_single_symbol)
+
+    def process_single_symbol(m):
+        symbol = m.text.strip().upper()
+        cfg = load_config()
+        bot_1h.send_message(m.chat.id, f"در حال بررسی پیشرفته {symbol} در تایم‌فریم 1h ...")
+
+        ts = now_utc().strftime("%Y%m%d_%H%M%S")
+        png = f"single_1h_{symbol}_{ts}.png"
+        html = f"single_1h_{symbol}_{ts}.html"
+
+        info = create_plotly_chart(
+            symbol,
+            "1h",
+            cfg["hourly_lookback_days"],
+            cfg["max_bars"],
+            png,
+            html,
+            watch_price=None  # در حالت چک تک نماد، خط واچ‌لیست لازم نیست
+        )
+
+        with open(info["png_path"], "rb") as f:
+            bot_1h.send_photo(m.chat.id, f, caption=f"{symbol} – بررسی پیشرفته 1h")
+
+        bot_1h.send_message(m.chat.id, "بررسی تک نماد پایان یافت.")
+
+    @bot_1h.message_handler(func=lambda m: m.text == "اجرای دستی 1h")
+    def manual_1h(m):
+        cfg = load_config()
+        run_cycle(
+            group="1h",
+            bot=bot_1h,
+            chat_id=cfg["chat_id_1h"],
+            symbols=cfg["hourly_symbols"],
+            interval="1h",
+            lookback_days=cfg["hourly_lookback_days"],
+            max_bars=cfg["max_bars"]
+        )
+
+    @bot_1h.message_handler(func=lambda m: m.text == "واچ‌لیست 1h")
+    def watchlist_1h_menu(m):
+        cfg = load_config()
+        wl = get_watchlist(cfg, "1h")
+        txt = "واچ‌لیست 1h:\n"
+        if not wl:
+            txt += "خالی است.\n"
+        else:
+            for s, info in wl.items():
+                txt += f"- {s}: قیمت ورود {info['price']} در {info['added_at']}\n"
+
+        kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        kb.row("افزودن به واچ‌لیست 1h", "حذف از واچ‌لیست 1h")
+        kb.row("بازگشت به منوی اصلی")
+        bot_1h.send_message(m.chat.id, txt, reply_markup=kb)
+
+    @bot_1h.message_handler(func=lambda m: m.text == "افزودن به واچ‌لیست 1h")
+    def add_wl_1h(m):
+        msg = bot_1h.send_message(m.chat.id, "نماد و قیمت را به صورت BTCUSDT 12345 وارد کنید:")
+        bot_1h.register_next_step_handler(msg, add_wl_1h_step)
+
+    def add_wl_1h_step(m):
+        try:
+            parts = m.text.strip().split()
+            symbol = parts[0].upper()
+            price = float(parts[1])
+        except:
+            bot_1h.send_message(m.chat.id, "فرمت اشتباه است. مثال: BTCUSDT 12345")
+            return
+        cfg = load_config()
+        add_to_watchlist(cfg, "1h", symbol, price)
+        bot_1h.send_message(m.chat.id, f"{symbol} با قیمت {price} به واچ‌لیست 1h اضافه شد.")
+        refresh_menu(bot_1h, m.chat.id)
+
+    @bot_1h.message_handler(func=lambda m: m.text == "حذف از واچ‌لیست 1h")
+    def remove_wl_1h(m):
+        msg = bot_1h.send_message(m.chat.id, "نماد مورد نظر برای حذف از واچ‌لیست 1h را وارد کنید:")
+        bot_1h.register_next_step_handler(msg, remove_wl_1h_step)
+
+    def remove_wl_1h_step(m):
+        symbol = m.text.strip().upper()
+        cfg = load_config()
+        wl = get_watchlist(cfg, "1h")
+        if symbol in wl:
+            remove_from_watchlist(cfg, "1h", symbol)
+            bot_1h.send_message(m.chat.id, f"{symbol} از واچ‌لیست 1h حذف شد.")
+        else:
+            bot_1h.send_message(m.chat.id, f"{symbol} در واچ‌لیست 1h وجود ندارد.")
+        refresh_menu(bot_1h, m.chat.id)
+
+    @bot_1h.message_handler(func=lambda m: m.text == "ریست واچ‌لیست‌ها")
+    def reset_watchlists_btn(m):
+        cfg = load_config()
+        reset_watchlists(cfg)
+        bot_1h.send_message(m.chat.id, "تمام واچ‌لیست‌ها (1h, 4h, 1d, 15m) پاک شدند.")
+        refresh_menu(bot_1h, m.chat.id)
+
+    @bot_1h.message_handler(func=lambda m: m.text == "تنظیم آلارم‌ها")
+    def alarms_menu(m):
+        cfg = load_config()
+        kb = types.InlineKeyboardMarkup()
+        kb.add(
+            types.InlineKeyboardButton(
+                f"WMA جهت ({'ON' if cfg.get('alarm_wma_direction', True) else 'OFF'})",
+                callback_data="alarm_wma_direction"
+            )
+        )
+        kb.add(
+            types.InlineKeyboardButton(
+                f"Cross SMA20 ({'ON' if cfg.get('alarm_cross_sma20', False) else 'OFF'})",
+                callback_data="alarm_cross_sma20"
+            )
+        )
+        kb.add(
+            types.InlineKeyboardButton(
+                f"Cross SMA100 ({'ON' if cfg.get('alarm_cross_sma100', False) else 'OFF'})",
+                callback_data="alarm_cross_sma100"
+            )
+        )
+        kb.add(
+            types.InlineKeyboardButton(
+                f"Cross SMA200 ({'ON' if cfg.get('alarm_cross_sma200', False) else 'OFF'})",
+                callback_data="alarm_cross_sma200"
+            )
+        )
+        kb.add(
+            types.InlineKeyboardButton(
+                f"SMA20 جهت ({'ON' if cfg.get('alarm_sma20_direction', False) else 'OFF'})",
+                callback_data="alarm_sma20_direction"
+            )
+        )
+        kb.add(
+            types.InlineKeyboardButton(
+                f"SMA100 جهت ({'ON' if cfg.get('alarm_sma100_direction', False) else 'OFF'})",
+                callback_data="alarm_sma100_direction"
+            )
+        )
+        kb.add(
+            types.InlineKeyboardButton(
+                f"SMA200 جهت ({'ON' if cfg.get('alarm_sma200_direction', False) else 'OFF'})",
+                callback_data="alarm_sma200_direction"
+            )
+        )
+        bot_1h.send_message(m.chat.id, "آلارم‌ها را تنظیم کنید:", reply_markup=kb)
+
+    @bot_1h.callback_query_handler(func=lambda c: c.data.startswith("alarm_"))
+    def toggle_alarm(c):
+        cfg = load_config()
+        key = c.data
+        current = cfg.get(key, False)
+        cfg[key] = not current
+        save_config(cfg)
+        bot_1h.answer_callback_query(c.id, f"{key} -> {'ON' if cfg[key] else 'OFF'}")
+        # آپدیت متن
+        alarms_menu(c.message)
+
+    @bot_1h.message_handler(func=lambda m: m.text == "بازنشانی نمادها")
+    def reset_symbols(m):
+        cfg = load_config()
+        cfg["hourly_symbols"] = DEFAULT_CONFIG["hourly_symbols"]
+        save_config(cfg)
+        bot_1h.send_message(m.chat.id, "نمادهای 1h بازنشانی شدند.")
+
+    @bot_1h.message_handler(func=lambda m: m.text == "راهنما")
+    def help_menu(m):
+        bot_1h.send_message(m.chat.id, HELP_TEXT)
+
+    @bot_1h.message_handler(func=lambda m: m.text == "رفرش منو")
+    def refresh_menu_btn(m):
+        refresh_menu(bot_1h, m.chat.id)
+
+    @bot_1h.message_handler(func=lambda m: m.text == "شروع چرخه‌ها")
+    def start_cycles(m):
+        bot_1h.send_message(m.chat.id, "چرخه‌ها به‌صورت خودکار طبق زمان‌بندی اجرا می‌شوند.\nبرای اجرای فوری از دستورات /start_cycle_* استفاده کنید.")
+
+    @bot_1h.message_handler(func=lambda m: m.text == "وضعیت سیستم")
+    def system_status(m):
+        cfg = load_config()
+        txt = "سیستم فعال است.\n" + now_utc_str()
+        txt += f"\nواچ‌لیست 1h: {len(get_watchlist(cfg,'1h'))} نماد"
+        txt += f"\nواچ‌لیست 4h: {len(get_watchlist(cfg,'4h'))} نماد"
+        txt += f"\nواچ‌لیست 1d: {len(get_watchlist(cfg,'1d'))} نماد"
+        txt += f"\nواچ‌لیست 15m: {len(get_watchlist(cfg,'15m'))} نماد"
+        bot_1h.send_message(m.chat.id, txt)
+
+    @bot_1h.message_handler(func=lambda m: m.text == "گزارش آلارم‌ها")
+    def alarms_report(m):
+        if not LAST_ALARMS:
+            bot_1h.send_message(m.chat.id, "هیچ آلارمی ثبت نشده است.")
+            return
+
+        txt = "آخرین آلارم‌ها:\n\n"
+        for item in LAST_ALARMS[-50:]:
+            txt += f"{item['symbol']} ({item['interval']}):\n"
+            for a in item["alarms"]:
+                txt += f" - {a}\n"
+            txt += f"زمان: {item['time']}\n\n"
+
+        bot_1h.send_message(m.chat.id, txt)
+
+    @bot_1h.message_handler(func=lambda m: m.text == "تنظیمات پیشرفته")
+    def advanced_settings(m):
+        bot_1h.send_message(m.chat.id, "بخش تنظیمات پیشرفته در نسخه‌های بعدی گسترش می‌یابد.")
 
 # =========================
 # بخش ۳ — دریافت دیتا، اندیکاتورها، نمودارها
@@ -347,7 +595,8 @@ def create_plotly_chart(
     lookback_days: int,
     max_bars: int,
     png_name: str,
-    html_name: str
+    html_name: str,
+    watch_price: float = None
 ) -> dict:
 
     df = fetch_ohlc(symbol, interval, lookback_days, max_bars)
@@ -392,6 +641,16 @@ def create_plotly_chart(
     fig.add_trace(go.Scatter(x=df.index, y=wma_up,   mode="lines", name="WMA20 Up",   line=dict(color="green", width=2, dash="dot")), row=1, col=1)
     fig.add_trace(go.Scatter(x=df.index, y=wma_down, mode="lines", name="WMA20 Down", line=dict(color="red",   width=2, dash="dot")), row=1, col=1)
 
+    # خط افقی قیمت واچ‌لیست (بنفش)
+    if watch_price is not None:
+        fig.add_hline(
+            y=watch_price,
+            line=dict(color="purple", dash="dash"),
+            annotation_text=f"Watch {symbol} @ {watch_price}",
+            annotation_position="top left",
+            row=1, col=1
+        )
+
     # RSI
     fig.add_trace(go.Scatter(x=df.index, y=df["RSI14"], mode="lines", name="RSI14", line=dict(color="brown")), row=2, col=1)
     fig.add_hline(y=70, line=dict(color="red", dash="dash"), row=2, col=1)
@@ -409,6 +668,7 @@ def create_plotly_chart(
         height=1000
     )
 
+    # چاپ نام ارز + تایم‌فریم با فونت ۳۰
     fig.add_annotation(
         text=f"{symbol} – {interval}",
         xref="paper", yref="paper",
@@ -440,8 +700,10 @@ def create_plotly_chart(
     }
 
 # =========================
-# بخش ۴ — آلارم‌ها و ارسال به ربات‌های دیگر
+# بخش ۴ — آلارم‌ها
 # =========================
+
+LAST_ALARMS = []
 
 def detect_alarms(cfg: dict, info: dict) -> list:
     alarms = []
@@ -468,13 +730,13 @@ def detect_alarms(cfg: dict, info: dict) -> list:
             return False
         return (a[-2] - b[-2]) * (a[-1] - b[-1]) < 0
 
-    if cfg.get("alarm_cross_sma20", True) and cross(wma, sma20):
+    if cfg.get("alarm_cross_sma20", False) and cross(wma, sma20):
         alarms.append("برخورد WMA20 با SMA20")
 
-    if cfg.get("alarm_cross_sma100", True) and cross(wma, sma100):
+    if cfg.get("alarm_cross_sma100", False) and cross(wma, sma100):
         alarms.append("برخورد WMA20 با SMA100")
 
-    if cfg.get("alarm_cross_sma200", True) and cross(wma, sma200):
+    if cfg.get("alarm_cross_sma200", False) and cross(wma, sma200):
         alarms.append("برخورد WMA20 با SMA200")
 
     # تغییر جهت SMAها
@@ -488,16 +750,16 @@ def detect_alarms(cfg: dict, info: dict) -> list:
         if d2 > 0 and d1 < 0:
             alarms.append(f"{name} جهت رو به پایین گرفت")
 
-    if cfg.get("alarm_sma20_direction", True):
+    if cfg.get("alarm_sma20_direction", False):
         dir_change(sma20, "SMA20")
 
-    if cfg.get("alarm_sma100_direction", True):
+    if cfg.get("alarm_sma100_direction", False):
         dir_change(sma100, "SMA100")
 
-    if cfg.get("alarm_sma200_direction", True):
+    if cfg.get("alarm_sma200_direction", False):
         dir_change(sma200, "SMA200")
 
-    # ذخیره آلارم‌ها در حافظه کوتاه‌مدت
+    # ذخیره آلارم‌ها
     if alarms:
         LAST_ALARMS.append({
             "symbol": info["symbol"],
@@ -505,77 +767,76 @@ def detect_alarms(cfg: dict, info: dict) -> list:
             "time": info["created_at"],
             "alarms": alarms
         })
-        if len(LAST_ALARMS) > 200:
+        if len(LAST_ALARMS) > 500:
             LAST_ALARMS.pop(0)
 
     return alarms
 
-def send_alarms_to_other_bots(source_group: str, info: dict, alarms: list):
-    caption = f"آلارم از واچ‌لیست {source_group}:\n{info['symbol']} ({info['interval']})\n" + "\n".join(alarms)
-
-    # به ربات‌های دیگر (اگر چت ثبت شده باشد) پیام خلاصه آلارم ارسال می‌شود
-    cfg = load_config()
-
-    def send_if(bot, chat_id):
-        if bot and chat_id:
-            try:
-                bot.send_message(chat_id, caption)
-            except:
-                pass
-
-    if source_group != "1h":
-        send_if(bot_1h, cfg.get("chat_id_1h"))
-    if source_group != "4h":
-        send_if(bot_4h, cfg.get("chat_id_4h"))
-    if source_group != "1d":
-        send_if(bot_1d, cfg.get("chat_id_1d"))
-    if source_group != "15m":
-        send_if(bot_15m, cfg.get("chat_id_15m"))
-
 # =========================
-# بخش ۵ — چرخه‌ها با پیام پیشرفت و واچ‌لیست
+# بخش ۵ — چرخه‌ها (با پیام پیشرفت و واچ‌لیست)
 # =========================
 
-def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str, lookback_days: int, max_bars: int, extra_watchlist: list = None, from_watchlist_group: str = None):
+CYCLE_COUNTERS = {
+    "1h": 0,
+    "4h": 0,
+    "1d": 0,
+    "15m": 0
+}
+
+def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str, lookback_days: int, max_bars: int):
     if not bot or not chat_id:
         return
 
     cfg = load_config()
-    progress_step = cfg.get("progress_step", 5)
+    batch_size = cfg.get("cycle_progress_batch", 5)
 
     bot.send_message(chat_id, f"شروع چرخه {group}\n# {now_utc_str()} UTC")
 
+    # جلوگیری از تکرار نمادها
     if isinstance(symbols, str):
         symbols = [symbols]
     unique_symbols = list(dict.fromkeys(symbols))
-
-    # اگر واچ‌لیست اضافه شده باشد، آن را هم در لیست پردازش قرار می‌دهیم
-    if extra_watchlist:
-        if isinstance(extra_watchlist, str):
-            extra_watchlist = [extra_watchlist]
-        for s in extra_watchlist:
-            if s not in unique_symbols:
-                unique_symbols.append(s)
 
     total = len(unique_symbols)
     processed = 0
 
     cycle_alarms = []
 
+    # PDF برای گروه روزانه
     pdf = None
-    if cfg.get("make_pdf", True):
+    if group == "1d":
         pdf = PdfPages(os.path.join(PDF_DIR, f"{group}_{now_utc().strftime('%Y%m%d_%H%M%S')}.pdf"))
+
+    # شمارنده سیکل برای ارسال وضعیت واچ‌لیست
+    CYCLE_COUNTERS[group] = CYCLE_COUNTERS.get(group, 0) + 1
+    send_watch_status = (CYCLE_COUNTERS[group] % cfg.get("watchlist_status_every_cycles", 4) == 0)
+
+    # واچ‌لیست مربوط به این گروه
+    wl_group = get_watchlist(cfg, group)
 
     for sym in unique_symbols:
         processed += 1
+
+        # پیام پیشرفت هر batch_size نماد
+        if processed % batch_size == 0 or processed == 1 or processed == total:
+            bot.send_message(
+                chat_id,
+                f"چرخه {group}: {processed} از {total} نماد پردازش شد، {total - processed} باقی مانده."
+            )
 
         ts = now_utc().strftime("%Y%m%d_%H%M%S")
         png = f"{group}_{sym}_{ts}.png"
         html = f"{group}_{sym}_{ts}.html"
 
-        info = create_plotly_chart(sym, interval, lookback_days, max_bars, png, html)
+        # اگر نماد در واچ‌لیست این گروه است، قیمت ورود را برای خط بنفش بگیریم
+        watch_price = None
+        if sym in wl_group:
+            watch_price = wl_group[sym]["price"]
+
+        info = create_plotly_chart(sym, interval, lookback_days, max_bars, png, html, watch_price=watch_price)
         alarms = detect_alarms(cfg, info)
 
+        # فقط اگر آلارم وجود داشته باشد، نمودار به همان ربات ارسال می‌شود
         if alarms:
             cycle_alarms.append({
                 "symbol": sym,
@@ -588,30 +849,38 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str, lookb
             with open(info["png_path"], "rb") as f:
                 bot.send_photo(chat_id, f, caption=caption)
 
-            if pdf is not None:
-                img = plt.imread(info["png_path"])
-                fig, ax = plt.subplots(figsize=(10,6))
-                ax.imshow(img)
-                ax.axis("off")
-                ax.set_title(f"{sym} – {group}")
-                pdf.savefig(fig)
-                plt.close(fig)
+        # ارسال وضعیت واچ‌لیست به "ربات واچ‌لیست" (در این نسخه همان ربات گروه)
+        if send_watch_status and sym in wl_group:
+            caption = f"وضعیت واچ‌لیست {group} – {sym}\nقیمت ورود: {wl_group[sym]['price']}\nزمان ورود: {wl_group[sym]['added_at']}"
+            with open(info["png_path"], "rb") as f:
+                bot.send_photo(chat_id, f, caption=caption)
 
-            # اگر این نماد از واچ‌لیست آمده باشد، آلارم به ربات‌های دیگر هم ارسال شود
-            if from_watchlist_group:
-                send_alarms_to_other_bots(from_watchlist_group, info, alarms)
+        # برای گروه روزانه، همه نمودارها در PDF ذخیره شوند (حتی بدون آلارم)
+        if group == "1d" and pdf is not None:
+            img = plt.imread(info["png_path"])
+            fig, ax = plt.subplots(figsize=(10,6))
+            ax.imshow(img)
+            ax.axis("off")
+            ax.set_title(f"{sym} – {group}")
+            pdf.savefig(fig)
+            plt.close(fig)
 
-        # پیام پیشرفت هر progress_step نماد
-        if processed % progress_step == 0 or processed == total:
-            remaining = total - processed
-            bot.send_message(chat_id, f"پیشرفت چرخه {group}: پردازش شده {processed} نماد، باقی‌مانده {remaining} نماد.")
-
+        # جلوگیری از Flood Control تلگرام
         time.sleep(1)
 
-    if pdf is not None:
+    # بستن PDF و ارسال به ربات روزانه
+    if group == "1d" and pdf is not None:
         pdf.close()
-        bot.send_message(chat_id, f"فایل PDF چرخه {group} ذخیره شد.")
+        pdf_path = os.path.join(PDF_DIR, f"{group}_{now_utc().strftime('%Y%m%d_%H%M%S')}.pdf")
+        # PdfPages خودش فایل را ساخته؛ برای سادگی همان نام قبلی را استفاده کردیم
+        # در صورت نیاز می‌توان مسیر دقیق را ذخیره کرد
+        try:
+            with open(pdf._file.name, "rb") as f:
+                bot.send_document(chat_id, f, caption=f"گزارش کامل روزانه – چرخه {group}")
+        except:
+            bot.send_message(chat_id, "ارسال PDF روزانه با مشکل مواجه شد.")
 
+    # ارسال جدول آلارم‌ها
     if cycle_alarms:
         table = "جدول آلارم‌های این سیکل:\n\n"
         for item in cycle_alarms:
@@ -626,235 +895,7 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str, lookb
     bot.send_message(chat_id, f"پایان چرخه {group}")
 
 # =========================
-# بخش ۶ — هندلرهای منوی ربات 1h (چک نماد، اجرای فوری، واچ‌لیست، ریست)
-# =========================
-
-if bot_1h:
-
-    @bot_1h.message_handler(func=lambda m: m.text == "چک یک نماد")
-    def check_symbol_simple(m):
-        bot_1h.send_message(m.chat.id, "نماد مورد نظر را وارد کنید (مثلاً BTCUSDT):")
-        bot_1h.register_next_step_handler(m, _check_symbol_simple_step)
-
-    def _check_symbol_simple_step(m):
-        sym = m.text.strip().upper()
-        cfg = load_config()
-        ts = now_utc().strftime("%Y%m%d_%H%M%S")
-        png = f"manual_{sym}_{ts}.png"
-        html = f"manual_{sym}_{ts}.html"
-        info = create_plotly_chart(sym, cfg["hourly_interval"], cfg["hourly_lookback_days"], cfg["max_bars"], png, html)
-        alarms = detect_alarms(cfg, info)
-        caption = f"{sym} (چک ساده)\n" + ("\n".join(alarms) if alarms else "بدون آلارم خاص")
-        with open(info["png_path"], "rb") as f:
-            bot_1h.send_photo(m.chat.id, f, caption=caption)
-
-    @bot_1h.message_handler(func=lambda m: m.text == "بررسی تک نماد (پیشرفته)")
-    def check_symbol_advanced(m):
-        bot_1h.send_message(m.chat.id, "نماد را وارد کنید (مثلاً BTCUSDT):")
-        bot_1h.register_next_step_handler(m, _check_symbol_advanced_symbol)
-
-    def _check_symbol_advanced_symbol(m):
-        sym = m.text.strip().upper()
-        kb = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-        kb.row("1h", "4h", "1d", "15m")
-        bot_1h.send_message(m.chat.id, "تایم‌فریم را انتخاب کنید:", reply_markup=kb)
-        bot_1h.register_next_step_handler(m, _check_symbol_advanced_interval, sym)
-
-    def _check_symbol_advanced_interval(m, sym):
-        interval = m.text.strip()
-        cfg = load_config()
-        ts = now_utc().strftime("%Y%m%d_%H%M%S")
-        png = f"adv_{sym}_{interval}_{ts}.png"
-        html = f"adv_{sym}_{interval}_{ts}.html"
-        lookback_map = {
-            "1h": cfg["hourly_lookback_days"],
-            "4h": cfg["fourh_lookback_days"],
-            "1d": cfg["daily_lookback_days"],
-            "15m": cfg["fifteenm_lookback_days"]
-        }
-        lb = lookback_map.get(interval, cfg["hourly_lookback_days"])
-        info = create_plotly_chart(sym, interval, lb, cfg["max_bars"], png, html)
-        alarms = detect_alarms(cfg, info)
-        caption = f"{sym} (پیشرفته {interval})\n" + ("\n".join(alarms) if alarms else "بدون آلارم خاص")
-        with open(info["png_path"], "rb") as f:
-            bot_1h.send_photo(m.chat.id, f, caption=caption)
-        refresh_menu(bot_1h, m.chat.id)
-
-    # اجرای فوری سیکل‌ها
-    @bot_1h.message_handler(func=lambda m: m.text == "اجرای فوری سیکل 1h")
-    def manual_cycle_1h(m):
-        cfg = load_config()
-        run_cycle(
-            "1h",
-            bot_1h,
-            cfg["chat_id_1h"],
-            cfg["hourly_symbols"],
-            "1h",
-            cfg["hourly_lookback_days"],
-            cfg["max_bars"],
-            extra_watchlist=cfg.get("hourly_watchlist", []),
-            from_watchlist_group="1h"
-        )
-
-    @bot_1h.message_handler(func=lambda m: m.text == "اجرای فوری سیکل 4h")
-    def manual_cycle_4h(m):
-        cfg = load_config()
-        if bot_4h and cfg.get("chat_id_4h"):
-            run_cycle(
-                "4h",
-                bot_4h,
-                cfg["chat_id_4h"],
-                cfg["fourh_symbols"],
-                "4h",
-                cfg["fourh_lookback_days"],
-                cfg["max_bars"],
-                extra_watchlist=cfg.get("fourh_watchlist", []),
-                from_watchlist_group="4h"
-            )
-        else:
-            bot_1h.send_message(m.chat.id, "ربات 4h یا چت آن ثبت نشده است.")
-
-    @bot_1h.message_handler(func=lambda m: m.text == "اجرای فوری سیکل 1d")
-    def manual_cycle_1d(m):
-        cfg = load_config()
-        if bot_1d and cfg.get("chat_id_1d"):
-            run_cycle(
-                "1d",
-                bot_1d,
-                cfg["chat_id_1d"],
-                cfg["daily_symbols"],
-                "1d",
-                cfg["daily_lookback_days"],
-                cfg["max_bars"],
-                extra_watchlist=cfg.get("daily_watchlist", []),
-                from_watchlist_group="1d"
-            )
-        else:
-            bot_1h.send_message(m.chat.id, "ربات 1d یا چت آن ثبت نشده است.")
-
-    @bot_1h.message_handler(func=lambda m: m.text == "اجرای فوری سیکل 15m")
-    def manual_cycle_15m(m):
-        cfg = load_config()
-        if bot_15m and cfg.get("chat_id_15m"):
-            run_cycle(
-                "15m",
-                bot_15m,
-                cfg["chat_id_15m"],
-                cfg["fifteenm_symbols"],
-                "15m",
-                cfg["fifteenm_lookback_days"],
-                cfg["max_bars"],
-                extra_watchlist=cfg.get("fifteenm_watchlist", []),
-                from_watchlist_group="15m"
-            )
-        else:
-            bot_1h.send_message(m.chat.id, "ربات 15m یا چت آن ثبت نشده است.")
-
-    # مدیریت واچ‌لیست‌ها
-    def _manage_watchlist(m, key, title):
-        cfg = load_config()
-        wl = cfg.get(key, [])
-        text = f"واچ‌لیست {title} فعلی:\n" + (", ".join(wl) if wl else "خالی")
-        kb = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-        kb.row("افزودن نماد به واچ‌لیست " + title)
-        kb.row("نمایش واچ‌لیست " + title)
-        kb.row("بازگشت به منوی اصلی")
-        bot_1h.send_message(m.chat.id, text, reply_markup=kb)
-        bot_1h.register_next_step_handler(m, _manage_watchlist_step, key, title)
-
-    def _manage_watchlist_step(m, key, title):
-        txt = m.text.strip()
-        cfg = load_config()
-        wl = cfg.get(key, [])
-        if txt.startswith("افزودن نماد"):
-            bot_1h.send_message(m.chat.id, f"نماد مورد نظر برای افزودن به واچ‌لیست {title} را وارد کنید:")
-            bot_1h.register_next_step_handler(m, _add_to_watchlist_step, key, title)
-        elif txt.startswith("نمایش واچ‌لیست"):
-            text = f"واچ‌لیست {title}:\n" + (", ".join(wl) if wl else "خالی")
-            bot_1h.send_message(m.chat.id, text)
-            refresh_menu(bot_1h, m.chat.id)
-        else:
-            refresh_menu(bot_1h, m.chat.id)
-
-    def _add_to_watchlist_step(m, key, title):
-        sym = m.text.strip().upper()
-        cfg = load_config()
-        wl = cfg.get(key, [])
-        if sym not in wl:
-            wl.append(sym)
-            cfg[key] = wl
-            save_config(cfg)
-            bot_1h.send_message(m.chat.id, f"{sym} به واچ‌لیست {title} اضافه شد.")
-        else:
-            bot_1h.send_message(m.chat.id, f"{sym} قبلاً در واچ‌لیست {title} وجود دارد.")
-        refresh_menu(bot_1h, m.chat.id)
-
-    @bot_1h.message_handler(func=lambda m: m.text == "مدیریت واچ‌لیست 1h")
-    def manage_watchlist_1h(m):
-        _manage_watchlist(m, "hourly_watchlist", "1h")
-
-    @bot_1h.message_handler(func=lambda m: m.text == "مدیریت واچ‌لیست 4h")
-    def manage_watchlist_4h(m):
-        _manage_watchlist(m, "fourh_watchlist", "4h")
-
-    @bot_1h.message_handler(func=lambda m: m.text == "مدیریت واچ‌لیست 1d")
-    def manage_watchlist_1d(m):
-        _manage_watchlist(m, "daily_watchlist", "1d")
-
-    @bot_1h.message_handler(func=lambda m: m.text == "مدیریت واچ‌لیست 15m")
-    def manage_watchlist_15m(m):
-        _manage_watchlist(m, "fifteenm_watchlist", "15m")
-
-    @bot_1h.message_handler(func=lambda m: m.text == "ریست واچ‌لیست‌ها")
-    def reset_watchlists(m):
-        cfg = load_config()
-        cfg["hourly_watchlist"] = []
-        cfg["fourh_watchlist"] = []
-        cfg["daily_watchlist"] = []
-        cfg["fifteenm_watchlist"] = []
-        save_config(cfg)
-        bot_1h.send_message(m.chat.id, "تمام واچ‌لیست‌ها پاک شدند.")
-        refresh_menu(bot_1h, m.chat.id)
-
-    @bot_1h.message_handler(func=lambda m: m.text == "ریست برنامه")
-    def reset_program(m):
-        global LAST_ALARMS
-        LAST_ALARMS = []
-        cfg = reset_config()
-        cfg["chat_id_1h"] = m.chat.id
-        save_config(cfg)
-        bot_1h.send_message(m.chat.id, "برنامه و تنظیمات به حالت اولیه ریست شد.")
-        refresh_menu(bot_1h, m.chat.id)
-
-    @bot_1h.message_handler(func=lambda m: m.text == "راهنما")
-    def help_menu(m):
-        bot_1h.send_message(m.chat.id, HELP_TEXT)
-
-    @bot_1h.message_handler(func=lambda m: m.text == "رفرش منو")
-    def refresh_menu_btn(m):
-        refresh_menu(bot_1h, m.chat.id)
-
-    @bot_1h.message_handler(func=lambda m: m.text == "وضعیت سیستم")
-    def system_status(m):
-        bot_1h.send_message(m.chat.id, "سیستم فعال است.\n" + now_utc_str())
-
-    @bot_1h.message_handler(func=lambda m: m.text == "گزارش آلارم‌ها")
-    def alarms_report(m):
-        if not LAST_ALARMS:
-            bot_1h.send_message(m.chat.id, "هیچ آلارمی ثبت نشده است.")
-            return
-
-        txt = "آخرین آلارم‌ها:\n\n"
-        for item in LAST_ALARMS[-20:]:
-            txt += f"{item['symbol']} ({item['interval']}):\n"
-            for a in item["alarms"]:
-                txt += f" - {a}\n"
-            txt += "\n"
-
-        bot_1h.send_message(m.chat.id, txt)
-
-# =========================
-# بخش ۷ — لوپ‌های زمان‌بندی با واچ‌لیست
+# بخش ۶ — لوپ‌های زمان‌بندی و اجرای نهایی main
 # =========================
 
 def loop_1h():
@@ -870,9 +911,7 @@ def loop_1h():
                 cfg["hourly_symbols"],
                 "1h",
                 cfg["hourly_lookback_days"],
-                cfg["max_bars"],
-                extra_watchlist=cfg.get("hourly_watchlist", []),
-                from_watchlist_group="1h"
+                cfg["max_bars"]
             )
             time.sleep(60)
 
@@ -893,9 +932,7 @@ def loop_4h():
                     cfg["fourh_symbols"],
                     "4h",
                     cfg["fourh_lookback_days"],
-                    cfg["max_bars"],
-                    extra_watchlist=cfg.get("fourh_watchlist", []),
-                    from_watchlist_group="4h"
+                    cfg["max_bars"]
                 )
                 time.sleep(60)
 
@@ -914,9 +951,7 @@ def loop_1d():
                 cfg["daily_symbols"],
                 "1d",
                 cfg["daily_lookback_days"],
-                cfg["max_bars"],
-                extra_watchlist=cfg.get("daily_watchlist", []),
-                from_watchlist_group="1d"
+                cfg["max_bars"]
             )
             time.sleep(60)
 
@@ -940,14 +975,72 @@ def loop_15m():
                 symbols,
                 "15m",
                 cfg["fifteenm_lookback_days"],
-                cfg["max_bars"],
-                extra_watchlist=cfg.get("fifteenm_watchlist", []),
-                from_watchlist_group="15m"
+                cfg["max_bars"]
             )
 
             time.sleep(60)
 
         time.sleep(20)
+
+# اجرای فوری سیکل‌ها با دستورات
+if bot_1h:
+    @bot_1h.message_handler(commands=["start_cycle"])
+    def cmd_cycle_1h(m):
+        cfg = load_config()
+        run_cycle(
+            "1h",
+            bot_1h,
+            cfg["chat_id_1h"],
+            cfg["hourly_symbols"],
+            "1h",
+            cfg["hourly_lookback_days"],
+            cfg["max_bars"]
+        )
+
+if bot_4h:
+    @bot_4h.message_handler(commands=["start_cycle_4h"])
+    def cmd_cycle_4h(m):
+        cfg = load_config()
+        run_cycle(
+            "4h",
+            bot_4h,
+            cfg["chat_id_4h"],
+            cfg["fourh_symbols"],
+            "4h",
+            cfg["fourh_lookback_days"],
+            cfg["max_bars"]
+        )
+
+if bot_1d:
+    @bot_1d.message_handler(commands=["start_cycle_1d"])
+    def cmd_cycle_1d(m):
+        cfg = load_config()
+        run_cycle(
+            "1d",
+            bot_1d,
+            cfg["chat_id_1d"],
+            cfg["daily_symbols"],
+            "1d",
+            cfg["daily_lookback_days"],
+            cfg["max_bars"]
+        )
+
+if bot_15m:
+    @bot_15m.message_handler(commands=["start_cycle_15m"])
+    def cmd_cycle_15m(m):
+        cfg = load_config()
+        symbols = cfg["fifteenm_symbols"]
+        if isinstance(symbols, str):
+            symbols = [symbols]
+        run_cycle(
+            "15m",
+            bot_15m,
+            cfg["chat_id_15m"],
+            symbols,
+            "15m",
+            cfg["fifteenm_lookback_days"],
+            cfg["max_bars"]
+        )
 
 # =========================
 # اجرای نهایی main
@@ -965,6 +1058,7 @@ if __name__ == "__main__":
         if bot_15m:
             bot_15m.send_message(ADMIN_CHAT, "ربات 15m راه‌اندازی شد.")
 
+    # شروع ربات‌ها و لوپ‌ها
     if bot_1h:
         threading.Thread(target=bot_1h.infinity_polling, daemon=True).start()
         threading.Thread(target=loop_1h, daemon=True).start()
@@ -981,5 +1075,6 @@ if __name__ == "__main__":
         threading.Thread(target=bot_15m.infinity_polling, daemon=True).start()
         threading.Thread(target=loop_15m, daemon=True).start()
 
+    # جلوگیری از خروج برنامه
     while True:
         time.sleep(60)
