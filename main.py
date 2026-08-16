@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Modu Bazler – main.py (نسخهٔ پیشرفته با واچ‌لیست دکمه‌ای و کنترل آلارم‌ها)
+# Modu Bazler – main.py (نسخهٔ پیشرفته با مدیریت مرکزی واچ‌لیست‌ها و تنظیمات پیشرفته)
 
 import os, json, time, threading, datetime as dt
 import requests, numpy as np, pandas as pd
@@ -42,7 +42,7 @@ DEFAULT_CONFIG = {
     ],
     "daily_symbols": [
         "BTCUSDT","ETHUSDT","BNBUSDT","XRPUSDT","ADAUSDT",
-        "SOLUSUSDT","DOGEUSDT","DOTUSDT","MATICUSDT","LTCUSDT",
+        "SOLUSDT","DOGEUSDT","DOTUSDT","MATICUSDT","LTCUSDT",
         "TRXUSDT","AVAXUSDT","LINKUSDT","ATOMUSDT","XMRUSDT",
         "ETCUSDT","XLMUSDT","FILUSDT","APTUSDT","NEARUSDT"
     ],
@@ -84,14 +84,13 @@ DEFAULT_CONFIG = {
     "chat_id_1d": None,
     "chat_id_15m": None,
 
-    # واچ‌لیست‌ها (هر ربات جدا)
-    # ساختار: { "BTCUSDT": {"price": 12345.0, "added_at": "YYYY-MM-DD HH:MM:SS"} }
+    # واچ‌لیست‌ها (هر تایم‌فریم جدا، مدیریت از ربات اصلی)
     "watchlist_1h": {},
     "watchlist_4h": {},
     "watchlist_1d": {},
     "watchlist_15m": {},
 
-    # تعداد سیکل‌هایی که وضعیت واچ‌لیست به ربات همان گروه ارسال شود
+    # تعداد سیکل‌هایی که وضعیت واچ‌لیست به همان ربات ارسال شود
     "watchlist_status_every_cycles": 4,
 
     # اندازه‌ی دسته برای پیام پیشرفت سیکل
@@ -140,7 +139,7 @@ def create_bot(token: str):
     except:
         return None
 
-bot_1h  = create_bot(TOKEN_1H)
+bot_1h  = create_bot(TOKEN_1H)   # ربات اصلی مدیریت
 bot_4h  = create_bot(TOKEN_4H)
 bot_1d  = create_bot(TOKEN_1D)
 bot_15m = create_bot(TOKEN_15M)
@@ -153,7 +152,7 @@ HELP_TEXT = """
 Modu Bazler – نسخه پیشرفته با سیستم آلارم و واچ‌لیست‌ها
 
 دستورات:
-/start – ثبت چت و نمایش منو
+/start – ثبت چت و نمایش منو در ربات اصلی
 /refresh – رفرش منو
 /reset_app – ریست کامل تنظیمات و واچ‌لیست‌ها
 
@@ -169,10 +168,10 @@ Modu Bazler – نسخه پیشرفته با سیستم آلارم و واچ‌�
 - 1d: هر روز ساعت 23:30
 - 15m: هر 15 دقیقه (دقیقه‌های 0، 15، 30، 45)
 
-منو اصلی:
+منو اصلی ربات 1h:
 - چک یک نماد (پیشرفته)
 - اجرای دستی 1h
-- مدیریت واچ‌لیست 1h
+- مدیریت واچ‌لیست‌ها (1h, 4h, 1d, 15m)
 - تنظیم آلارم‌ها
 - بازنشانی نمادها
 - راهنما
@@ -191,7 +190,7 @@ def send_main_menu(bot, chat_id):
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
 
     kb.row("چک یک نماد", "اجرای دستی 1h")
-    kb.row("مدیریت واچ‌لیست 1h", "تنظیم آلارم‌ها")
+    kb.row("مدیریت واچ‌لیست‌ها", "تنظیم آلارم‌ها")
     kb.row("بازنشانی نمادها", "راهنما")
     kb.row("رفرش منو", "شروع چرخه‌ها")
     kb.row("وضعیت سیستم", "گزارش آلارم‌ها")
@@ -234,8 +233,13 @@ def reset_watchlist_group(cfg, group: str):
     set_watchlist(cfg, group, {})
     save_config(cfg)
 
+def reset_all_watchlists(cfg):
+    for g in ["1h","4h","1d","15m"]:
+        set_watchlist(cfg, g, {})
+    save_config(cfg)
+
 # =========================
-# هندلرهای /start و /refresh و /reset_app
+# هندلرهای /start و /refresh و /reset_app (ربات اصلی)
 # =========================
 
 if bot_1h:
@@ -256,9 +260,10 @@ if bot_1h:
         cfg = reset_config()
         cfg["chat_id_1h"] = m.chat.id
         save_config(cfg)
-        bot_1h.send_message(m.chat.id, "برنامه و واچ‌لیست‌ها ریست شدند.")
+        bot_1h.send_message(m.chat.id, "برنامه و تمام واچ‌لیست‌ها ریست شدند.")
         refresh_menu(bot_1h, m.chat.id)
 
+# سایر ربات‌ها فقط start ساده دارند
 if bot_4h:
     @bot_4h.message_handler(commands=["start"])
     def start_4h(m):
@@ -284,7 +289,7 @@ if bot_15m:
         bot_15m.send_message(m.chat.id, "ربات ۱۵دقیقه‌ای فعال شد.\n" + now_utc_str())
 
 # =========================
-# هندلرهای منوی 1h (چک نماد، اجرای دستی، مدیریت واچ‌لیست، آلارم‌ها)
+# هندلرهای منوی ربات اصلی (1h)
 # =========================
 
 LAST_ALARMS = []
@@ -297,6 +302,7 @@ CYCLE_COUNTERS = {
 
 if bot_1h:
 
+    # چک تک نماد
     @bot_1h.message_handler(func=lambda m: m.text == "چک یک نماد")
     def check_symbol(m):
         msg = bot_1h.send_message(m.chat.id, "نماد مورد نظر را وارد کنید (مثلاً BTCUSDT):")
@@ -326,6 +332,7 @@ if bot_1h:
 
         bot_1h.send_message(m.chat.id, "بررسی تک نماد پایان یافت.")
 
+    # اجرای دستی سیکل 1h
     @bot_1h.message_handler(func=lambda m: m.text == "اجرای دستی 1h")
     def manual_1h(m):
         cfg = load_config()
@@ -339,11 +346,11 @@ if bot_1h:
             max_bars=cfg["max_bars"]
         )
 
-    @bot_1h.message_handler(func=lambda m: m.text == "مدیریت واچ‌لیست 1h")
-    def manage_watchlist_1h(m):
+    # مدیریت مرکزی واچ‌لیست‌ها
+    def show_watchlist_menu(chat_id, group: str):
         cfg = load_config()
-        wl = get_watchlist(cfg, "1h")
-        txt = "واچ‌لیست 1h:\n"
+        wl = get_watchlist(cfg, group)
+        txt = f"واچ‌لیست {group}:\n"
         if not wl:
             txt += "خالی است.\n"
         else:
@@ -351,17 +358,37 @@ if bot_1h:
                 txt += f"- {s}: قیمت ورود {info['price']} در {info['added_at']}\n"
 
         kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        kb.row("افزودن نماد به واچ‌لیست 1h", "حذف نماد از واچ‌لیست 1h")
-        kb.row("نمایش واچ‌لیست 1h", "ریست واچ‌لیست 1h")
+        kb.row(f"افزودن نماد به واچ‌لیست {group}", f"حذف نماد از واچ‌لیست {group}")
+        kb.row(f"نمایش واچ‌لیست {group}", f"ریست واچ‌لیست {group}")
         kb.row("بازگشت به منوی اصلی")
-        bot_1h.send_message(m.chat.id, txt, reply_markup=kb)
+        bot_1h.send_message(chat_id, txt, reply_markup=kb)
 
-    @bot_1h.message_handler(func=lambda m: m.text == "افزودن نماد به واچ‌لیست 1h")
-    def add_wl_1h(m):
-        msg = bot_1h.send_message(m.chat.id, "نماد و قیمت را به صورت BTCUSDT 12345 وارد کنید:")
-        bot_1h.register_next_step_handler(msg, add_wl_1h_step)
+    @bot_1h.message_handler(func=lambda m: m.text == "مدیریت واچ‌لیست‌ها")
+    def manage_all_watchlists(m):
+        kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        kb.row("واچ‌لیست 1h", "واچ‌لیست 4h")
+        kb.row("واچ‌لیست 1d", "واچ‌لیست 15m")
+        kb.row("بازگشت به منوی اصلی")
+        bot_1h.send_message(m.chat.id, "انتخاب واچ‌لیست تایم‌فریم:", reply_markup=kb)
 
-    def add_wl_1h_step(m):
+    @bot_1h.message_handler(func=lambda m: m.text == "واچ‌لیست 1h")
+    def wl_1h_menu(m):
+        show_watchlist_menu(m.chat.id, "1h")
+
+    @bot_1h.message_handler(func=lambda m: m.text == "واچ‌لیست 4h")
+    def wl_4h_menu(m):
+        show_watchlist_menu(m.chat.id, "4h")
+
+    @bot_1h.message_handler(func=lambda m: m.text == "واچ‌لیست 1d")
+    def wl_1d_menu(m):
+        show_watchlist_menu(m.chat.id, "1d")
+
+    @bot_1h.message_handler(func=lambda m: m.text == "واچ‌لیست 15m")
+    def wl_15m_menu(m):
+        show_watchlist_menu(m.chat.id, "15m")
+
+    # افزودن نماد به واچ‌لیست‌ها
+    def add_wl_step(m, group: str):
         try:
             parts = m.text.strip().split()
             symbol = parts[0].upper()
@@ -370,31 +397,74 @@ if bot_1h:
             bot_1h.send_message(m.chat.id, "فرمت اشتباه است. مثال: BTCUSDT 12345")
             return
         cfg = load_config()
-        add_to_watchlist(cfg, "1h", symbol, price)
-        bot_1h.send_message(m.chat.id, f"{symbol} با قیمت {price} به واچ‌لیست 1h اضافه شد.")
-        refresh_menu(bot_1h, m.chat.id)
+        add_to_watchlist(cfg, group, symbol, price)
+        bot_1h.send_message(m.chat.id, f"{symbol} با قیمت {price} به واچ‌لیست {group} اضافه شد.")
+        show_watchlist_menu(m.chat.id, group)
 
-    @bot_1h.message_handler(func=lambda m: m.text == "حذف نماد از واچ‌لیست 1h")
-    def remove_wl_1h(m):
-        msg = bot_1h.send_message(m.chat.id, "نماد مورد نظر برای حذف از واچ‌لیست 1h را وارد کنید:")
-        bot_1h.register_next_step_handler(msg, remove_wl_1h_step)
+    @bot_1h.message_handler(func=lambda m: m.text.startswith("افزودن نماد به واچ‌لیست "))
+    def add_wl_any(m):
+        text = m.text.strip()
+        if "1h" in text:
+            msg = bot_1h.send_message(m.chat.id, "نماد و قیمت را به صورت BTCUSDT 12345 وارد کنید:")
+            bot_1h.register_next_step_handler(msg, lambda mm: add_wl_step(mm, "1h"))
+        elif "4h" in text:
+            msg = bot_1h.send_message(m.chat.id, "نماد و قیمت را به صورت BTCUSDT 12345 وارد کنید:")
+            bot_1h.register_next_step_handler(msg, lambda mm: add_wl_step(mm, "4h"))
+        elif "1d" in text:
+            msg = bot_1h.send_message(m.chat.id, "نماد و قیمت را به صورت BTCUSDT 12345 وارد کنید:")
+            bot_1h.register_next_step_handler(msg, lambda mm: add_wl_step(mm, "1d"))
+        elif "15m" in text:
+            msg = bot_1h.send_message(m.chat.id, "نماد و قیمت را به صورت BTCUSDT 12345 وارد کنید:")
+            bot_1h.register_next_step_handler(msg, lambda mm: add_wl_step(mm, "15m"))
 
-    def remove_wl_1h_step(m):
+    # حذف نماد از واچ‌لیست‌ها
+    def remove_wl_step(m, group: str):
         symbol = m.text.strip().upper()
         cfg = load_config()
-        wl = get_watchlist(cfg, "1h")
+        wl = get_watchlist(cfg, group)
         if symbol in wl:
-            remove_from_watchlist(cfg, "1h", symbol)
-            bot_1h.send_message(m.chat.id, f"{symbol} از واچ‌لیست 1h حذف شد.")
+            remove_from_watchlist(cfg, group, symbol)
+            bot_1h.send_message(m.chat.id, f"{symbol} از واچ‌لیست {group} حذف شد.")
         else:
-            bot_1h.send_message(m.chat.id, f"{symbol} در واچ‌لیست 1h وجود ندارد.")
-        refresh_menu(bot_1h, m.chat.id)
+            bot_1h.send_message(m.chat.id, f"{symbol} در واچ‌لیست {group} وجود ندارد.")
+        show_watchlist_menu(m.chat.id, group)
 
-    @bot_1h.message_handler(func=lambda m: m.text == "نمایش واچ‌لیست 1h")
-    def show_wl_1h(m):
+    @bot_1h.message_handler(func=lambda m: m.text.startswith("حذف نماد از واچ‌لیست "))
+    def remove_wl_any(m):
+        text = m.text.strip()
+        if "1h" in text:
+            msg = bot_1h.send_message(m.chat.id, "نماد مورد نظر برای حذف را وارد کنید:")
+            bot_1h.register_next_step_handler(msg, lambda mm: remove_wl_step(mm, "1h"))
+        elif "4h" in text:
+            msg = bot_1h.send_message(m.chat.id, "نماد مورد نظر برای حذف را وارد کنید:")
+            bot_1h.register_next_step_handler(msg, lambda mm: remove_wl_step(mm, "4h"))
+        elif "1d" in text:
+            msg = bot_1h.send_message(m.chat.id, "نماد مورد نظر برای حذف را وارد کنید:")
+            bot_1h.register_next_step_handler(msg, lambda mm: remove_wl_step(mm, "1d"))
+        elif "15m" in text:
+            msg = bot_1h.send_message(m.chat.id, "نماد مورد نظر برای حذف را وارد کنید:")
+            bot_1h.register_next_step_handler(msg, lambda mm: remove_wl_step(mm, "15m"))
+
+    # نمایش واچ‌لیست‌ها
+    @bot_1h.message_handler(func=lambda m: m.text.startswith("نمایش واچ‌لیست "))
+    def show_wl_any(m):
+        text = m.text.strip()
         cfg = load_config()
-        wl = get_watchlist(cfg, "1h")
-        txt = "واچ‌لیست 1h:\n"
+        if "1h" in text:
+            wl = get_watchlist(cfg, "1h")
+            group = "1h"
+        elif "4h" in text:
+            wl = get_watchlist(cfg, "4h")
+            group = "4h"
+        elif "1d" in text:
+            wl = get_watchlist(cfg, "1d")
+            group = "1d"
+        elif "15m" in text:
+            wl = get_watchlist(cfg, "15m")
+            group = "15m"
+        else:
+            return
+        txt = f"واچ‌لیست {group}:\n"
         if not wl:
             txt += "خالی است.\n"
         else:
@@ -402,13 +472,34 @@ if bot_1h:
                 txt += f"- {s}: قیمت ورود {info['price']} در {info['added_at']}\n"
         bot_1h.send_message(m.chat.id, txt)
 
-    @bot_1h.message_handler(func=lambda m: m.text == "ریست واچ‌لیست 1h")
-    def reset_wl_1h(m):
+    # ریست واچ‌لیست‌ها (گروه)
+    @bot_1h.message_handler(func=lambda m: m.text.startswith("ریست واچ‌لیست "))
+    def reset_wl_any(m):
+        text = m.text.strip()
         cfg = load_config()
-        reset_watchlist_group(cfg, "1h")
-        bot_1h.send_message(m.chat.id, "واچ‌لیست 1h پاک شد.")
+        if "1h" in text:
+            reset_watchlist_group(cfg, "1h")
+            bot_1h.send_message(m.chat.id, "واچ‌لیست 1h پاک شد.")
+            show_watchlist_menu(m.chat.id, "1h")
+        elif "4h" in text:
+            reset_watchlist_group(cfg, "4h")
+            bot_1h.send_message(m.chat.id, "واچ‌لیست 4h پاک شد.")
+            show_watchlist_menu(m.chat.id, "4h")
+        elif "1d" in text:
+            reset_watchlist_group(cfg, "1d")
+            bot_1h.send_message(m.chat.id, "واچ‌لیست 1d پاک شد.")
+            show_watchlist_menu(m.chat.id, "1d")
+        elif "15m" in text:
+            reset_watchlist_group(cfg, "15m")
+            bot_1h.send_message(m.chat.id, "واچ‌لیست 15m پاک شد.")
+            show_watchlist_menu(m.chat.id, "15m")
+
+    # بازگشت به منوی اصلی
+    @bot_1h.message_handler(func=lambda m: m.text == "بازگشت به منوی اصلی")
+    def back_to_main(m):
         refresh_menu(bot_1h, m.chat.id)
 
+    # تنظیم آلارم‌ها (همان قبلی)
     @bot_1h.message_handler(func=lambda m: m.text == "تنظیم آلارم‌ها")
     def alarms_menu(m):
         cfg = load_config()
@@ -467,6 +558,7 @@ if bot_1h:
         bot_1h.answer_callback_query(c.id, f"{key} -> {'ON' if cfg[key] else 'OFF'}")
         alarms_menu(c.message)
 
+    # بازنشانی نمادهای 1h
     @bot_1h.message_handler(func=lambda m: m.text == "بازنشانی نمادها")
     def reset_symbols(m):
         cfg = load_config()
@@ -474,18 +566,22 @@ if bot_1h:
         save_config(cfg)
         bot_1h.send_message(m.chat.id, "نمادهای 1h بازنشانی شدند.")
 
+    # راهنما
     @bot_1h.message_handler(func=lambda m: m.text == "راهنما")
     def help_menu(m):
         bot_1h.send_message(m.chat.id, HELP_TEXT)
 
+    # رفرش منو
     @bot_1h.message_handler(func=lambda m: m.text == "رفرش منو")
     def refresh_menu_btn(m):
         refresh_menu(bot_1h, m.chat.id)
 
+    # شروع چرخه‌ها
     @bot_1h.message_handler(func=lambda m: m.text == "شروع چرخه‌ها")
     def start_cycles(m):
         bot_1h.send_message(m.chat.id, "چرخه‌ها به‌صورت خودکار طبق زمان‌بندی اجرا می‌شوند.\nبرای اجرای فوری از دستورات /start_cycle_* استفاده کنید.")
 
+    # وضعیت سیستم
     @bot_1h.message_handler(func=lambda m: m.text == "وضعیت سیستم")
     def system_status(m):
         cfg = load_config()
@@ -494,8 +590,12 @@ if bot_1h:
         txt += f"\nواچ‌لیست 4h: {len(get_watchlist(cfg,'4h'))} نماد"
         txt += f"\nواچ‌لیست 1d: {len(get_watchlist(cfg,'1d'))} نماد"
         txt += f"\nواچ‌لیست 15m: {len(get_watchlist(cfg,'15m'))} نماد"
+        txt += f"\ncycle_progress_batch: {cfg.get('cycle_progress_batch',5)}"
+        txt += f"\nwatchlist_status_every_cycles: {cfg.get('watchlist_status_every_cycles',4)}"
+        txt += f"\nmake_pdf (روزانه): {'ON' if cfg.get('make_pdf',True) else 'OFF'}"
         bot_1h.send_message(m.chat.id, txt)
 
+    # گزارش آلارم‌ها
     @bot_1h.message_handler(func=lambda m: m.text == "گزارش آلارم‌ها")
     def alarms_report(m):
         if not LAST_ALARMS:
@@ -511,9 +611,68 @@ if bot_1h:
 
         bot_1h.send_message(m.chat.id, txt)
 
+    # تنظیمات پیشرفته – بدون سؤال، مستقیم قابل تنظیم
     @bot_1h.message_handler(func=lambda m: m.text == "تنظیمات پیشرفته")
     def advanced_settings(m):
-        bot_1h.send_message(m.chat.id, "بخش تنظیمات پیشرفته در نسخه‌های بعدی گسترش می‌یابد.")
+        cfg = load_config()
+        kb = types.InlineKeyboardMarkup()
+        kb.add(
+            types.InlineKeyboardButton(
+                f"PDF روزانه ({'ON' if cfg.get('make_pdf', True) else 'OFF'})",
+                callback_data="adv_make_pdf"
+            )
+        )
+        kb.add(
+            types.InlineKeyboardButton(
+                f"batch سیکل = {cfg.get('cycle_progress_batch',5)}",
+                callback_data="adv_cycle_batch_toggle"
+            )
+        )
+        kb.add(
+            types.InlineKeyboardButton(
+                f"ارسال وضعیت واچ‌لیست هر {cfg.get('watchlist_status_every_cycles',4)} سیکل",
+                callback_data="adv_watchlist_status_toggle"
+            )
+        )
+        kb.add(
+            types.InlineKeyboardButton(
+                "ریست همهٔ واچ‌لیست‌ها",
+                callback_data="adv_reset_all_watchlists"
+            )
+        )
+        kb.add(
+            types.InlineKeyboardButton(
+                "ریست کامل برنامه (config)",
+                callback_data="adv_reset_app"
+            )
+        )
+        bot_1h.send_message(m.chat.id, "تنظیمات پیشرفته:", reply_markup=kb)
+
+    @bot_1h.callback_query_handler(func=lambda c: c.data.startswith("adv_"))
+    def advanced_settings_handler(c):
+        cfg = load_config()
+        if c.data == "adv_make_pdf":
+            cfg["make_pdf"] = not cfg.get("make_pdf", True)
+            save_config(cfg)
+            bot_1h.answer_callback_query(c.id, f"make_pdf -> {'ON' if cfg['make_pdf'] else 'OFF'}")
+        elif c.data == "adv_cycle_batch_toggle":
+            current = cfg.get("cycle_progress_batch", 5)
+            cfg["cycle_progress_batch"] = 10 if current == 5 else 5
+            save_config(cfg)
+            bot_1h.answer_callback_query(c.id, f"cycle_progress_batch -> {cfg['cycle_progress_batch']}")
+        elif c.data == "adv_watchlist_status_toggle":
+            current = cfg.get("watchlist_status_every_cycles", 4)
+            cfg["watchlist_status_every_cycles"] = 2 if current == 4 else 4
+            save_config(cfg)
+            bot_1h.answer_callback_query(c.id, f"watchlist_status_every_cycles -> {cfg['watchlist_status_every_cycles']}")
+        elif c.data == "adv_reset_all_watchlists":
+            reset_all_watchlists(cfg)
+            bot_1h.answer_callback_query(c.id, "تمام واچ‌لیست‌ها پاک شدند.")
+        elif c.data == "adv_reset_app":
+            cfg = reset_config()
+            save_config(cfg)
+            bot_1h.answer_callback_query(c.id, "برنامه و تنظیمات به حالت اولیه برگشت.")
+        advanced_settings(c.message)
 
 # =========================
 # دریافت دیتا، اندیکاتورها، نمودارها
@@ -966,6 +1125,7 @@ def loop_15m():
 
         time.sleep(20)
 
+# اجرای فوری سیکل‌ها از ربات اصلی
 if bot_1h:
     @bot_1h.message_handler(commands=["start_cycle"])
     def cmd_cycle_1h(m):
@@ -1033,7 +1193,7 @@ if __name__ == "__main__":
 
     if ADMIN_CHAT:
         if bot_1h:
-            bot_1h.send_message(ADMIN_CHAT, "ربات 1h راه‌اندازی شد.")
+            bot_1h.send_message(ADMIN_CHAT, "ربات اصلی 1h راه‌اندازی شد.")
         if bot_4h:
             bot_4h.send_message(ADMIN_CHAT, "ربات 4h راه‌اندازی شد.")
         if bot_1d:
