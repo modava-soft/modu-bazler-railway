@@ -92,7 +92,7 @@ DEFAULT_CONFIG = {
     "watchlist_status_every_cycles": 4,
 
     # اندازه‌ی دسته برای پیام پیشرفت سیکل
-    "cycle_progress_batch": 5
+    "cycle_progress_batch": 15
 }
 
 def save_config(cfg: dict):
