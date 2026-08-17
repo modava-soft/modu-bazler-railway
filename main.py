@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Modu Bazler – main.py (نسخهٔ پیشرفته با مدیریت مرکزی واچ‌لیست‌ها و تنظیمات پیشرفته)
+# Modu Bazler – main.py (نسخهٔ پیشرفته با مدیریت مرکزی واچ‌لیست‌ها، تنظیمات پیشرفته و گزارش آلارم‌ها)
 
 import os, json, time, threading, datetime as dt
 import requests, numpy as np, pandas as pd
@@ -157,10 +157,10 @@ Modu Bazler – نسخه پیشرفته با سیستم آلارم و واچ‌�
 /reset_app – ریست کامل تنظیمات و واچ‌لیست‌ها
 
 سیکل‌ها:
-/start_cycle – شروع چرخه ۱ساعته (اجرای فوری)
-/start_cycle_4h – شروع چرخه ۴ساعته (اجرای فوری)
-/start_cycle_1d – شروع چرخه روزانه (اجرای فوری)
-/start_cycle_15m – شروع چرخه ۱۵دقیقه‌ای (اجرای فوری)
+/start_cycle – شروع چرخه ۱ساعته (اجرای فوری از ربات اصلی)
+/start_cycle_4h – شروع چرخه ۴ساعته (اجرای فوری از ربات اصلی)
+/start_cycle_1d – شروع چرخه روزانه (اجرای فوری از ربات اصلی)
+/start_cycle_15m – شروع چرخه ۱۵دقیقه‌ای (اجرای فوری از ربات 15m)
 
 زمان‌بندی خودکار:
 - 1h: هر ساعت در دقیقه 30
@@ -171,6 +171,8 @@ Modu Bazler – نسخه پیشرفته با سیستم آلارم و واچ‌�
 منو اصلی ربات 1h:
 - چک یک نماد (پیشرفته)
 - اجرای دستی 1h
+- اجرای فوری 4h
+- اجرای فوری 1d
 - مدیریت واچ‌لیست‌ها (1h, 4h, 1d, 15m)
 - تنظیم آلارم‌ها
 - بازنشانی نمادها
@@ -190,6 +192,7 @@ def send_main_menu(bot, chat_id):
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
 
     kb.row("چک یک نماد", "اجرای دستی 1h")
+    kb.row("اجرای فوری 4h", "اجرای فوری 1d")
     kb.row("مدیریت واچ‌لیست‌ها", "تنظیم آلارم‌ها")
     kb.row("بازنشانی نمادها", "راهنما")
     kb.row("رفرش منو", "شروع چرخه‌ها")
@@ -289,16 +292,25 @@ if bot_15m:
         bot_15m.send_message(m.chat.id, "ربات ۱۵دقیقه‌ای فعال شد.\n" + now_utc_str())
 
 # =========================
-# هندلرهای منوی ربات اصلی (1h)
+# ساختار آلارم‌ها (گزارش جداگانه)
 # =========================
 
-LAST_ALARMS = []
+LAST_ALARMS = {
+    "general": [],   # 1h و 15m
+    "4h": [],
+    "1d": []
+}
+
 CYCLE_COUNTERS = {
     "1h": 0,
     "4h": 0,
     "1d": 0,
     "15m": 0
 }
+
+# =========================
+# هندلرهای منوی ربات اصلی (1h)
+# =========================
 
 if bot_1h:
 
@@ -345,6 +357,39 @@ if bot_1h:
             lookback_days=cfg["hourly_lookback_days"],
             max_bars=cfg["max_bars"]
         )
+
+    # اجرای فوری 4h و 1d از ربات اصلی
+    @bot_1h.message_handler(func=lambda m: m.text == "اجرای فوری 4h")
+    def manual_4h_btn(m):
+        cfg = load_config()
+        if bot_4h and cfg.get("chat_id_4h"):
+            run_cycle(
+                "4h",
+                bot_4h,
+                cfg["chat_id_4h"],
+                cfg["fourh_symbols"],
+                "4h",
+                cfg["fourh_lookback_days"],
+                cfg["max_bars"]
+            )
+        else:
+            bot_1h.send_message(m.chat.id, "ربات 4h یا چت آن ثبت نشده است.")
+
+    @bot_1h.message_handler(func=lambda m: m.text == "اجرای فوری 1d")
+    def manual_1d_btn(m):
+        cfg = load_config()
+        if bot_1d and cfg.get("chat_id_1d"):
+            run_cycle(
+                "1d",
+                bot_1d,
+                cfg["chat_id_1d"],
+                cfg["daily_symbols"],
+                "1d",
+                cfg["daily_lookback_days"],
+                cfg["max_bars"]
+            )
+        else:
+            bot_1h.send_message(m.chat.id, "ربات 1d یا چت آن ثبت نشده است.")
 
     # مدیریت مرکزی واچ‌لیست‌ها
     def show_watchlist_menu(chat_id, group: str):
@@ -499,7 +544,7 @@ if bot_1h:
     def back_to_main(m):
         refresh_menu(bot_1h, m.chat.id)
 
-    # تنظیم آلارم‌ها (همان قبلی)
+    # تنظیم آلارم‌ها
     @bot_1h.message_handler(func=lambda m: m.text == "تنظیم آلارم‌ها")
     def alarms_menu(m):
         cfg = load_config()
@@ -595,23 +640,41 @@ if bot_1h:
         txt += f"\nmake_pdf (روزانه): {'ON' if cfg.get('make_pdf',True) else 'OFF'}"
         bot_1h.send_message(m.chat.id, txt)
 
-    # گزارش آلارم‌ها
+    # گزارش آلارم‌ها – با پاک‌سازی قبلی و تفکیک 4h و 1d
     @bot_1h.message_handler(func=lambda m: m.text == "گزارش آلارم‌ها")
     def alarms_report(m):
-        if not LAST_ALARMS:
-            bot_1h.send_message(m.chat.id, "هیچ آلارمی ثبت نشده است.")
-            return
+        txt = ""
 
-        txt = "آخرین آلارم‌ها:\n\n"
-        for item in LAST_ALARMS[-50:]:
-            txt += f"{item['symbol']} ({item['interval']}):\n"
-            for a in item["alarms"]:
-                txt += f" - {a}\n"
-            txt += f"زمان: {item['time']}\n\n"
+        if LAST_ALARMS["general"]:
+            txt += "📌 آلارم‌های عمومی (1h و 15m):\n"
+            for item in LAST_ALARMS["general"]:
+                txt += f"{item['symbol']} ({item['interval']}):\n"
+                for a in item["alarms"]:
+                    txt += f" - {a}\n"
+                txt += f"زمان: {item['time']}\n\n"
+
+        if LAST_ALARMS["4h"]:
+            txt += "⏱ آلارم‌های 4h:\n"
+            for item in LAST_ALARMS["4h"]:
+                txt += f"{item['symbol']} ({item['interval']}):\n"
+                for a in item["alarms"]:
+                    txt += f" - {a}\n"
+                txt += f"زمان: {item['time']}\n\n"
+
+        if LAST_ALARMS["1d"]:
+            txt += "📅 آلارم‌های روزانه:\n"
+            for item in LAST_ALARMS["1d"]:
+                txt += f"{item['symbol']} ({item['interval']}):\n"
+                for a in item["alarms"]:
+                    txt += f" - {a}\n"
+                txt += f"زمان: {item['time']}\n\n"
+
+        if not txt:
+            txt = "هیچ آلارمی ثبت نشده است."
 
         bot_1h.send_message(m.chat.id, txt)
 
-    # تنظیمات پیشرفته – بدون سؤال، مستقیم قابل تنظیم
+    # تنظیمات پیشرفته
     @bot_1h.message_handler(func=lambda m: m.text == "تنظیمات پیشرفته")
     def advanced_settings(m):
         cfg = load_config()
@@ -869,7 +932,7 @@ def create_plotly_chart(
     }
 
 # =========================
-# آلارم‌ها
+# آلارم‌ها – با تفکیک گزارش‌ها
 # =========================
 
 def detect_alarms(cfg: dict, info: dict) -> list:
@@ -924,14 +987,23 @@ def detect_alarms(cfg: dict, info: dict) -> list:
         dir_change(sma200, "SMA200")
 
     if alarms:
-        LAST_ALARMS.append({
+        interval = info["interval"]
+        record = {
             "symbol": info["symbol"],
             "interval": info["interval"],
             "time": info["created_at"],
             "alarms": alarms
-        })
-        if len(LAST_ALARMS) > 500:
-            LAST_ALARMS.pop(0)
+        }
+
+        if interval == "4h":
+            LAST_ALARMS["4h"] = []
+            LAST_ALARMS["4h"].append(record)
+        elif interval == "1d":
+            LAST_ALARMS["1d"] = []
+            LAST_ALARMS["1d"].append(record)
+        else:
+            LAST_ALARMS["general"] = []
+            LAST_ALARMS["general"].append(record)
 
     return alarms
 
@@ -1125,7 +1197,7 @@ def loop_15m():
 
         time.sleep(20)
 
-# اجرای فوری سیکل‌ها از ربات اصلی
+# اجرای فوری سیکل‌ها از ربات‌ها
 if bot_1h:
     @bot_1h.message_handler(commands=["start_cycle"])
     def cmd_cycle_1h(m):
@@ -1140,33 +1212,37 @@ if bot_1h:
             cfg["max_bars"]
         )
 
-if bot_4h:
-    @bot_4h.message_handler(commands=["start_cycle_4h"])
-    def cmd_cycle_4h(m):
+    @bot_1h.message_handler(commands=["start_cycle_4h"])
+    def cmd_cycle_4h_main(m):
         cfg = load_config()
-        run_cycle(
-            "4h",
-            bot_4h,
-            cfg["chat_id_4h"],
-            cfg["fourh_symbols"],
-            "4h",
-            cfg["fourh_lookback_days"],
-            cfg["max_bars"]
-        )
+        if bot_4h and cfg.get("chat_id_4h"):
+            run_cycle(
+                "4h",
+                bot_4h,
+                cfg["chat_id_4h"],
+                cfg["fourh_symbols"],
+                "4h",
+                cfg["fourh_lookback_days"],
+                cfg["max_bars"]
+            )
+        else:
+            bot_1h.send_message(m.chat.id, "ربات 4h یا چت آن ثبت نشده است.")
 
-if bot_1d:
-    @bot_1d.message_handler(commands=["start_cycle_1d"])
-    def cmd_cycle_1d(m):
+    @bot_1h.message_handler(commands=["start_cycle_1d"])
+    def cmd_cycle_1d_main(m):
         cfg = load_config()
-        run_cycle(
-            "1d",
-            bot_1d,
-            cfg["chat_id_1d"],
-            cfg["daily_symbols"],
-            "1d",
-            cfg["daily_lookback_days"],
-            cfg["max_bars"]
-        )
+        if bot_1d and cfg.get("chat_id_1d"):
+            run_cycle(
+                "1d",
+                bot_1d,
+                cfg["chat_id_1d"],
+                cfg["daily_symbols"],
+                "1d",
+                cfg["daily_lookback_days"],
+                cfg["max_bars"]
+            )
+        else:
+            bot_1h.send_message(m.chat.id, "ربات 1d یا چت آن ثبت نشده است.")
 
 if bot_15m:
     @bot_15m.message_handler(commands=["start_cycle_15m"])
