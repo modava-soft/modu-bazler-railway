@@ -59,10 +59,10 @@ DEFAULT_CONFIG = {
     "daily_interval": "1d",
     "fifteenm_interval": "15m",
 
-    "hourly_lookback_days": 5,
-    "fourh_lookback_days": 15,
+    "hourly_lookback_days": 3,
+    "fourh_lookback_days": 5,
     "daily_lookback_days": 180,
-    "fifteenm_lookback_days": 3,
+    "fifteenm_lookback_days": 1,
 
     "max_bars": 300,
 
