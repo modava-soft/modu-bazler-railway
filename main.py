@@ -1,6 +1,17 @@
 # -*- coding: utf-8 -*-
 # Modu Bazler – main.py (نسخهٔ پیشرفته با مدیریت مرکزی واچ‌لیست‌ها و تنظیمات پیشرفته)
+import os
 
+print("=== TELEGRAM TOKEN TEST ===")
+print("TOKEN_1H =", repr(os.getenv("TOKEN_1H")))
+print("TOKEN_15M =", repr(os.getenv("TOKEN_15M")))
+
+if os.getenv("TOKEN_1H") is None:
+    print("ERROR: TOKEN_1H is None")
+if os.getenv("TOKEN_15M") is None:
+    print("ERROR: TOKEN_15M is None")
+
+print("============================")
 import os, json, time, threading, datetime as dt
 import requests, numpy as np, pandas as pd
 import matplotlib
