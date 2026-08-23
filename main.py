@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Modu Bazler – main.py (نسخهٔ پیشرفته با رفع باگ اجرای فوری روزانه و تنظیم تعداد نمادها)
+# Modu Bazler – main.py (نسخهٔ بهینه‌شده با اجرای درست سیکل روزانه و ۴ساعته و مدیریت مرکزی در ربات اصلی)
 
 import os, json, time, threading, datetime as dt
 import requests, numpy as np, pandas as pd
@@ -28,6 +28,7 @@ for d in [DATA_DIR, CHARTS_DIR, HTML_DIR, PDF_DIR]:
 CONFIG_PATH = os.path.join(DATA_DIR, "config.json")
 
 DEFAULT_CONFIG = {
+    # نمادها – فقط تعداد استفاده می‌شود، ترتیب مهم نیست
     "hourly_symbols": [
         "BTCUSDT","ETHUSDT","BNBUSDT","XRPUSDT","ADAUSDT",
         "SOLUSDT","DOGEUSDT","DOTUSDT","MATICUSDT","LTCUSDT",
@@ -87,10 +88,10 @@ DEFAULT_CONFIG = {
     "daily_interval": "1d",
     "fifteenm_interval": "15m",
 
-    "hourly_lookback_days": 2,
-    "fourh_lookback_days": 3,
+    "hourly_lookback_days": 5,
+    "fourh_lookback_days": 15,
     "daily_lookback_days": 180,
-    "fifteenm_lookback_days": 1,
+    "fifteenm_lookback_days": 3,
 
     "max_bars": 300,
 
@@ -105,9 +106,6 @@ DEFAULT_CONFIG = {
     "make_pdf": True,
 
     "chat_id_1h": None,
-    "chat_id_4h": None,
-    "chat_id_1d": None,
-    "chat_id_15m": None,
 
     "watchlist_1h": {},
     "watchlist_4h": {},
@@ -141,9 +139,6 @@ def now_utc_str():
     return now_utc().strftime("%Y-%m-%d %H:%M:%S")
 
 TOKEN_1H   = (os.getenv("TOKEN_1H") or "").strip()
-TOKEN_4H   = (os.getenv("TOKEN_4H") or "").strip()
-TOKEN_1D   = (os.getenv("TOKEN_1D") or "").strip()
-TOKEN_15M  = (os.getenv("TOKEN_15M") or "").strip()
 ADMIN_CHAT = (os.getenv("ADMIN_CHAT_ID") or "").strip()
 
 def create_bot(token: str):
@@ -156,45 +151,31 @@ def create_bot(token: str):
     except:
         return None
 
-bot_1h  = create_bot(TOKEN_1H)
-bot_4h  = create_bot(TOKEN_4H)
-bot_1d  = create_bot(TOKEN_1D)
-bot_15m = create_bot(TOKEN_15M)
+bot_1h = create_bot(TOKEN_1H)
 
 HELP_TEXT = """
-Modu Bazler – نسخه پیشرفته با سیستم آلارم و واچ‌لیست‌ها
+Modu Bazler – نسخه پیشرفته با سیستم آلارم و واچ‌لیست‌ها (مدیریت مرکزی در ربات اصلی)
 
 دستورات:
-/start – ثبت چت و نمایش منو در ربات اصلی
+/start – ثبت چت و نمایش منو
 /refresh – رفرش منو
 /reset_app – ریست کامل تنظیمات و واچ‌لیست‌ها
+/start_cycle – اجرای فوری سیکل 1h
+/start_cycle_4h – اجرای فوری سیکل 4h
+/start_cycle_1d – اجرای فوری سیکل روزانه
+/start_cycle_15m – اجرای فوری سیکل 15m
 
-سیکل‌ها:
-/start_cycle – شروع چرخه ۱ساعته (اجرای فوری از ربات اصلی)
-/start_cycle_4h – شروع چرخه ۴ساعته (اجرای فوری از ربات اصلی)
-/start_cycle_1d – شروع چرخه روزانه (اجرای فوری از ربات اصلی)
-/start_cycle_15m – شروع چرخه ۱۵دقیقه‌ای (اجرای فوری از ربات 15m)
-
-زمان‌بندی خودکار:
+زمان‌بندی خودکار (روی همان ربات اصلی):
 - 1h: هر ساعت در دقیقه 22 (۵۰ ارز اول)
-- 4h: در ساعات 2:07، 6:07، 10:07، 14:07، 18:07، 22:07 (۵۰ ارز اول)
-- 1d: هر روز ساعت 01:05 (۱۰۰ ارز اول)
-- 15m: هر 15 دقیقه (دقیقه‌های 0، 15، 30، 45) (۲۰ ارز اول)
+- 4h: شروع سیکل‌ها از ساعت 02:07 (و هر ۴ ساعت) – ۵۰ ارز اول
+- 1d: هر روز ساعت 01:05 – ۱۰۰ ارز اول
+- 15m: هر ۱۵ دقیقه – ۲۰ ارز اول
 
-منو اصلی ربات 1h:
-- چک یک نماد (پیشرفته)
-- اجرای دستی 1h
-- اجرای فوری 4h
-- اجرای فوری 1d
-- مدیریت واچ‌لیست‌ها (1h, 4h, 1d, 15m)
-- تنظیم آلارم‌ها
-- بازنشانی نمادها
-- راهنما
-- رفرش منو
-- شروع چرخه‌ها
-- وضعیت سیستم
-- گزارش آلارم‌ها
-- تنظیمات پیشرفته
+تعداد نمادها در هر سیکل:
+- سیکل ۱۵ دقیقه‌ای: ۲۰ ارز اول
+- سیکل ساعتی: ۵۰ ارز اول
+- سیکل ۴ ساعته: ۵۰ ارز اول
+- سیکل روزانه: ۱۰۰ ارز اول
 """
 
 def send_main_menu(bot, chat_id):
@@ -241,7 +222,15 @@ def reset_all_watchlists(cfg):
         set_watchlist(cfg, g, {})
     save_config(cfg)
 
+LAST_ALARMS = {"general": [], "4h": [], "1d": []}
+CYCLE_COUNTERS = {"1h": 0, "4h": 0, "1d": 0, "15m": 0}
+
+# =========================
+# هندلرهای ربات اصلی 1h
+# =========================
+
 if bot_1h:
+
     @bot_1h.message_handler(commands=["start"])
     def start_1h(m):
         cfg = load_config()
@@ -261,35 +250,6 @@ if bot_1h:
         save_config(cfg)
         bot_1h.send_message(m.chat.id, "برنامه و تمام واچ‌لیست‌ها ریست شدند.")
         refresh_menu(bot_1h, m.chat.id)
-
-if bot_4h:
-    @bot_4h.message_handler(commands=["start"])
-    def start_4h(m):
-        cfg = load_config()
-        cfg["chat_id_4h"] = m.chat.id
-        save_config(cfg)
-        bot_4h.send_message(m.chat.id, "ربات ۴ساعته فعال شد.\n" + now_utc_str())
-
-if bot_1d:
-    @bot_1d.message_handler(commands=["start"])
-    def start_1d(m):
-        cfg = load_config()
-        cfg["chat_id_1d"] = m.chat.id
-        save_config(cfg)
-        bot_1d.send_message(m.chat.id, "ربات روزانه فعال شد.\n" + now_utc_str())
-
-if bot_15m:
-    @bot_15m.message_handler(commands=["start"])
-    def start_15m(m):
-        cfg = load_config()
-        cfg["chat_id_15m"] = m.chat.id
-        save_config(cfg)
-        bot_15m.send_message(m.chat.id, "ربات ۱۵دقیقه‌ای فعال شد.\n" + now_utc_str())
-
-LAST_ALARMS = {"general": [], "4h": [], "1d": []}
-CYCLE_COUNTERS = {"1h": 0, "4h": 0, "1d": 0, "15m": 0}
-
-if bot_1h:
 
     @bot_1h.message_handler(func=lambda m: m.text == "چک یک نماد")
     def check_symbol(m):
@@ -328,14 +288,11 @@ if bot_1h:
         if isinstance(symbols, str):
             symbols = [symbols]
         symbols = symbols[:50]  # ۵۰ ارز اول
-        if bot_4h and cfg.get("chat_id_4h"):
-            threading.Thread(
-                target=run_cycle,
-                args=("4h", bot_4h, cfg["chat_id_4h"], symbols, "4h", cfg["fourh_lookback_days"], cfg["max_bars"]),
-                daemon=True
-            ).start()
-        else:
-            bot_1h.send_message(m.chat.id, "ربات 4h یا چت آن ثبت نشده است.")
+        threading.Thread(
+            target=run_cycle,
+            args=("4h", bot_1h, cfg["chat_id_1h"], symbols, "4h", cfg["fourh_lookback_days"], cfg["max_bars"]),
+            daemon=True
+        ).start()
 
     @bot_1h.message_handler(func=lambda m: m.text == "اجرای فوری 1d")
     def manual_1d_btn(m):
@@ -344,18 +301,11 @@ if bot_1h:
         if isinstance(symbols, str):
             symbols = [symbols]
         symbols = symbols[:100]  # ۱۰۰ ارز اول
-        if bot_1d and cfg.get("chat_id_1d"):
-            threading.Thread(
-                target=run_cycle,
-                args=("1d", bot_1d, cfg["chat_id_1d"], symbols, "1d", cfg["daily_lookback_days"], cfg["max_bars"]),
-                daemon=True
-            ).start()
-        else:
-            threading.Thread(
-                target=run_cycle,
-                args=("1d", bot_1h, cfg["chat_id_1h"], symbols, "1d", cfg["daily_lookback_days"], cfg["max_bars"]),
-                daemon=True
-            ).start()
+        threading.Thread(
+            target=run_cycle,
+            args=("1d", bot_1h, cfg["chat_id_1h"], symbols, "1d", cfg["daily_lookback_days"], cfg["max_bars"]),
+            daemon=True
+        ).start()
 
     def show_watchlist_menu(chat_id, group: str):
         cfg = load_config()
@@ -619,6 +569,10 @@ if bot_1h:
             bot_1h.answer_callback_query(c.id, "برنامه و تنظیمات به حالت اولیه برگشت.")
         advanced_settings(c.message)
 
+# =========================
+# داده‌ها و اندیکاتورها
+# =========================
+
 def _binance_interval(i: str) -> str:
     return {"1h": "1h", "4h": "4h", "1d": "1d", "15m": "15m"}[i]
 
@@ -816,18 +770,16 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str, lookb
             caption = f"{sym} ({group})\n" + "\n".join(alarms)
             with open(info["png_path"], "rb") as f:
                 bot.send_photo(chat_id, f, caption=caption)
-            if sym in wl_group and bot_1h:
-                main_chat = cfg.get("chat_id_1h")
-                if main_chat:
-                    wl_info = wl_group[sym]
-                    wl_caption = (
-                        f"آلارم واچ‌لیست {group} – {sym}\n"
-                        f"قیمت ثبت در واچ‌لیست: {wl_info['price']}\n"
-                        f"زمان ثبت: {wl_info['added_at']}\n"
-                        + "\n".join(alarms)
-                    )
-                    with open(info["png_path"], "rb") as f2:
-                        bot_1h.send_photo(main_chat, f2, caption=wl_caption)
+            if sym in wl_group:
+                wl_info = wl_group[sym]
+                wl_caption = (
+                    f"آلارم واچ‌لیست {group} – {sym}\n"
+                    f"قیمت ثبت در واچ‌لیست: {wl_info['price']}\n"
+                    f"زمان ثبت: {wl_info['added_at']}\n"
+                    + "\n".join(alarms)
+                )
+                with open(info["png_path"], "rb") as f2:
+                    bot.send_photo(chat_id, f2, caption=wl_caption)
         if send_watch_status and sym in wl_group:
             caption = f"وضعیت واچ‌لیست {group} – {sym}\nقیمت ورود: {wl_group[sym]['price']}\nزمان ورود: {wl_group[sym]['added_at']}"
             with open(info["png_path"], "rb") as f:
@@ -857,6 +809,10 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str, lookb
         bot.send_message(chat_id, "در این سیکل هیچ آلارمی فعال نشد.")
     bot.send_message(chat_id, f"پایان چرخه {group}")
 
+# =========================
+# لوپ‌های زمان‌بندی خودکار
+# =========================
+
 def loop_1h():
     while True:
         cfg = load_config()
@@ -875,36 +831,38 @@ def loop_1h():
         time.sleep(20)
 
 def loop_4h():
+    # شروع از 02:07 و هر ۴ ساعت
     times = [(2,7),(6,7),(10,7),(14,7),(18,7),(22,7)]
     while True:
         cfg = load_config()
         now = dt.datetime.now()
-        for h, m in times:
-            if now.hour == h and now.minute == m and bot_4h and cfg.get("chat_id_4h"):
-                symbols = cfg["fourh_symbols"]
-                if isinstance(symbols, str):
-                    symbols = [symbols]
-                symbols = symbols[:50]  # ۵۰ ارز اول
-                threading.Thread(
-                    target=run_cycle,
-                    args=("4h", bot_4h, cfg["chat_id_4h"], symbols, "4h", cfg["fourh_lookback_days"], cfg["max_bars"]),
-                    daemon=True
-                ).start()
-                time.sleep(60)
+        if bot_1h and cfg.get("chat_id_1h"):
+            for h, m in times:
+                if now.hour == h and now.minute == m:
+                    symbols = cfg["fourh_symbols"]
+                    if isinstance(symbols, str):
+                        symbols = [symbols]
+                    symbols = symbols[:50]  # ۵۰ ارز اول
+                    threading.Thread(
+                        target=run_cycle,
+                        args=("4h", bot_1h, cfg["chat_id_1h"], symbols, "4h", cfg["fourh_lookback_days"], cfg["max_bars"]),
+                        daemon=True
+                    ).start()
+                    time.sleep(60)
         time.sleep(20)
 
 def loop_1d():
     while True:
         cfg = load_config()
         now = dt.datetime.now()
-        if now.hour == 1 and now.minute == 5 and bot_1d and cfg.get("chat_id_1d"):
+        if now.hour == 1 and now.minute == 5 and bot_1h and cfg.get("chat_id_1h"):
             symbols = cfg["daily_symbols"]
             if isinstance(symbols, str):
                 symbols = [symbols]
             symbols = symbols[:100]  # ۱۰۰ ارز اول
             threading.Thread(
                 target=run_cycle,
-                args=("1d", bot_1d, cfg["chat_id_1d"], symbols, "1d", cfg["daily_lookback_days"], cfg["max_bars"]),
+                args=("1d", bot_1h, cfg["chat_id_1h"], symbols, "1d", cfg["daily_lookback_days"], cfg["max_bars"]),
                 daemon=True
             ).start()
             time.sleep(60)
@@ -914,18 +872,22 @@ def loop_15m():
     while True:
         cfg = load_config()
         now = dt.datetime.now()
-        if now.minute % 15 == 0 and bot_15m and cfg.get("chat_id_15m"):
+        if now.minute % 15 == 0 and bot_1h and cfg.get("chat_id_1h"):
             symbols = cfg["fifteenm_symbols"]
             if isinstance(symbols, str):
                 symbols = [symbols]
             symbols = symbols[:20]  # ۲۰ ارز اول
             threading.Thread(
                 target=run_cycle,
-                args=("15m", bot_15m, cfg["chat_id_15m"], symbols, "15m", cfg["fifteenm_lookback_days"], cfg["max_bars"]),
+                args=("15m", bot_1h, cfg["chat_id_1h"], symbols, "15m", cfg["fifteenm_lookback_days"], cfg["max_bars"]),
                 daemon=True
             ).start()
             time.sleep(60)
         time.sleep(20)
+
+# =========================
+# دستورات اجرای فوری
+# =========================
 
 if bot_1h:
     @bot_1h.message_handler(commands=["start_cycle"])
@@ -948,14 +910,11 @@ if bot_1h:
         if isinstance(symbols, str):
             symbols = [symbols]
         symbols = symbols[:50]
-        if bot_4h and cfg.get("chat_id_4h"):
-            threading.Thread(
-                target=run_cycle,
-                args=("4h", bot_4h, cfg["chat_id_4h"], symbols, "4h", cfg["fourh_lookback_days"], cfg["max_bars"]),
-                daemon=True
-            ).start()
-        else:
-            bot_1h.send_message(m.chat.id, "ربات 4h یا چت آن ثبت نشده است.")
+        threading.Thread(
+            target=run_cycle,
+            args=("4h", bot_1h, cfg["chat_id_1h"], symbols, "4h", cfg["fourh_lookback_days"], cfg["max_bars"]),
+            daemon=True
+        ).start()
 
     @bot_1h.message_handler(commands=["start_cycle_1d"])
     def cmd_cycle_1d_main(m):
@@ -964,21 +923,13 @@ if bot_1h:
         if isinstance(symbols, str):
             symbols = [symbols]
         symbols = symbols[:100]
-        if bot_1d and cfg.get("chat_id_1d"):
-            threading.Thread(
-                target=run_cycle,
-                args=("1d", bot_1d, cfg["chat_id_1d"], symbols, "1d", cfg["daily_lookback_days"], cfg["max_bars"]),
-                daemon=True
-            ).start()
-        else:
-            threading.Thread(
-                target=run_cycle,
-                args=("1d", bot_1h, cfg["chat_id_1h"], symbols, "1d", cfg["daily_lookback_days"], cfg["max_bars"]),
-                daemon=True
-            ).start()
+        threading.Thread(
+            target=run_cycle,
+            args=("1d", bot_1h, cfg["chat_id_1h"], symbols, "1d", cfg["daily_lookback_days"], cfg["max_bars"]),
+            daemon=True
+        ).start()
 
-if bot_15m:
-    @bot_15m.message_handler(commands=["start_cycle_15m"])
+    @bot_1h.message_handler(commands=["start_cycle_15m"])
     def cmd_cycle_15m(m):
         cfg = load_config()
         symbols = cfg["fifteenm_symbols"]
@@ -987,28 +938,23 @@ if bot_15m:
         symbols = symbols[:20]
         threading.Thread(
             target=run_cycle,
-            args=("15m", bot_15m, cfg["chat_id_15m"], symbols, "15m", cfg["fifteenm_lookback_days"], cfg["max_bars"]),
+            args=("15m", bot_1h, cfg["chat_id_1h"], symbols, "15m", cfg["fifteenm_lookback_days"], cfg["max_bars"]),
             daemon=True
         ).start()
 
+# =========================
+# راه‌اندازی
+# =========================
+
 if __name__ == "__main__":
-    if ADMIN_CHAT:
-        if bot_1h:  bot_1h.send_message(ADMIN_CHAT, "ربات اصلی 1h راه‌اندازی شد.")
-        if bot_4h:  bot_4h.send_message(ADMIN_CHAT, "ربات 4h راه‌اندازی شد.")
-        if bot_1d:  bot_1d.send_message(ADMIN_CHAT, "ربات 1d راه‌اندازی شد.")
-        if bot_15m: bot_15m.send_message(ADMIN_CHAT, "ربات 15m راه‌اندازی شد.")
+    if ADMIN_CHAT and bot_1h:
+        bot_1h.send_message(ADMIN_CHAT, "ربات اصلی 1h راه‌اندازی شد (مدیریت همهٔ سیکل‌ها).")
 
     if bot_1h:
         threading.Thread(target=bot_1h.infinity_polling, daemon=True).start()
         threading.Thread(target=loop_1h, daemon=True).start()
-    if bot_4h:
-        threading.Thread(target=bot_4h.infinity_polling, daemon=True).start()
         threading.Thread(target=loop_4h, daemon=True).start()
-    if bot_1d:
-        threading.Thread(target=bot_1d.infinity_polling, daemon=True).start()
         threading.Thread(target=loop_1d, daemon=True).start()
-    if bot_15m:
-        threading.Thread(target=bot_15m.infinity_polling, daemon=True).start()
         threading.Thread(target=loop_15m, daemon=True).start()
 
     while True:
