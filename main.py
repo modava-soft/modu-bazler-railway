@@ -17,11 +17,11 @@ from telebot import types
 # توکن‌ها – بعداً مقدار بده
 # =========================
 
-TOKEN_MAIN  = ""      # ربات اصلی (مدیریت مرکزی + منوها)
-TOKEN_1H    = ""      # ربات سیکل 1h
-TOKEN_4H    = ""      # ربات سیکل 4h
-TOKEN_1D    = ""      # ربات سیکل روزانه
-TOKEN_15M   = ""      # ربات سیکل 15m
+TOKEN_MAIN  = "6330098471:AAGHanvMEvWN-N6nh1gaKhC6uCET0kock1Q"      # ربات اصلی (مدیریت مرکزی + منوها)
+TOKEN_1H    = "6771750492:AAHeldakNtSH1K9jQ3Ja-HQSelBgvWVe_cA"      # ربات سیکل 1h
+TOKEN_4H    = "8288371457:AAFSNI_pAT03XDpawX_lf7qWvbTca8nXHas"      # ربات سیکل 4h
+TOKEN_1D    = "7999041823:AAGsI55d2YB6qv0T6CBYsc24Dd-zilt8INU"      # ربات سیکل روزانه
+TOKEN_15M   = "8884969815:AAF3OivHwJuKzA9T98Si39IMJSgtQR13a3I"      # ربات سیکل 15m
 
 ADMIN_CHAT_ID = ""    # چت آیدی مدیر (اختیاری)
 
