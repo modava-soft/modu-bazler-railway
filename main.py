@@ -1,9 +1,23 @@
 # -*- coding: utf-8 -*-
-# Modu Bazler v4.0 – چهاررباته حرفه‌ای با مدیریت مرکزی، اجرای فوری، تک‌نماد، آلارم‌ها، تنظیمات پیشرفته
+# Modu Bazler v4.1 – چهاررباته حرفه‌ای با مدیریت مرکزی، اجرای فوری، تک‌نماد، آلارم‌ها، تنظیمات پیشرفته
 # زمان‌بندی بر اساس قطر (UTC+3)
+# بازنویسی کامل با تمرکز روی:
+# - اجرای کامل سیکل‌ها (بدون گیر کردن)
+# - اجرای تک نماد با خروجی و نمودار
+# - ۴ ربات + ربات اصلی
+# - پیش‌فرض‌های هوشمند برای chat_id (اگر ثبت نشده باشد، از ربات اصلی استفاده می‌شود)
+# - افزایش ساختار و لاگ‌ها برای پایداری (تعداد خطوط بالا)
 
-import os, json, time, threading, datetime as dt
-import requests, numpy as np, pandas as pd
+import os
+import json
+import time
+import threading
+import datetime as dt
+import traceback
+import logging
+import requests
+import numpy as np
+import pandas as pd
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -14,8 +28,55 @@ import telebot
 from telebot import types
 
 # =========================
+# لاگ‌گیری
+# =========================
+
+BASE_DIR   = os.path.abspath(os.path.dirname(__file__))
+LOG_DIR    = os.path.join(BASE_DIR, "logs")
+DATA_DIR   = os.path.join(BASE_DIR, "data")
+CHARTS_DIR = os.path.join(DATA_DIR, "charts")
+PDF_DIR    = os.path.join(DATA_DIR, "pdf")
+
+for d in [LOG_DIR, DATA_DIR, CHARTS_DIR, PDF_DIR]:
+    os.makedirs(d, exist_ok=True)
+
+LOG_FILE = os.path.join(LOG_DIR, "modu_bazler_v4.log")
+logging.basicConfig(
+    filename=LOG_FILE,
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+)
+
+def log_info(msg: str):
+    try:
+        logging.info(msg)
+    except:
+        pass
+
+def log_error(msg: str):
+    try:
+        logging.error(msg)
+    except:
+        pass
+
+def log_exception(e: Exception, context: str = ""):
+    try:
+        logging.error(f"Exception in {context}: {e}\n{traceback.format_exc()}")
+    except:
+        pass
+
+# =========================
 # توکن‌ها – بعداً مقدار بده
 # =========================
+
+TOKEN_MAIN  = ""      # ربات اصلی (مدیریت مرکزی + منوها)
+TOKEN_1H    = ""      # ربات سیکل 1h
+TOKEN_4H    = ""      # ربات سیکل 4h
+TOKEN_1D    = ""      # ربات سیکل روزانه
+TOKEN_15M   = ""      # ربات سیکل 15m
+
+ADMIN_CHAT_ID = ""    # چت آیدی مدیر (اختیاری)
+
 
 TOKEN_MAIN  = "6330098471:AAGHanvMEvWN-N6nh1gaKhC6uCET0kock1Q"      # ربات اصلی (مدیریت مرکزی + منوها)
 TOKEN_1H    = "6771750492:AAHeldakNtSH1K9jQ3Ja-HQSelBgvWVe_cA"      # ربات سیکل 1h
@@ -23,21 +84,10 @@ TOKEN_4H    = "8288371457:AAFSNI_pAT03XDpawX_lf7qWvbTca8nXHas"      # ربات �
 TOKEN_1D    = "7999041823:AAGsI55d2YB6qv0T6CBYsc24Dd-zilt8INU"      # ربات سیکل روزانه
 TOKEN_15M   = "8884969815:AAF3OivHwJuKzA9T98Si39IMJSgtQR13a3I"      # ربات سیکل 15m
 
-ADMIN_CHAT_ID = ""    # چت آیدی مدیر (اختیاری)
-
+ADMIN_CHAT_ID = ""    # چت آیدی مدیر 
 # =========================
-# مسیرها و تنظیمات پایه
+# تنظیمات زمان
 # =========================
-
-BASE_DIR   = os.path.abspath(os.path.dirname(__file__))
-DATA_DIR   = os.path.join(BASE_DIR, "data")
-CHARTS_DIR = os.path.join(DATA_DIR, "charts")
-PDF_DIR    = os.path.join(DATA_DIR, "pdf")
-
-for d in [DATA_DIR, CHARTS_DIR, PDF_DIR]:
-    os.makedirs(d, exist_ok=True)
-
-CONFIG_PATH = os.path.join(DATA_DIR, "config_v4.json")
 
 QATAR_TZ = dt.timezone(dt.timedelta(hours=3))
 
@@ -50,9 +100,14 @@ def now_utc_str():
 def now_qatar():
     return dt.datetime.now(QATAR_TZ)
 
+def format_qatar(dt_obj: dt.datetime):
+    return dt_obj.astimezone(QATAR_TZ).strftime("%Y-%m-%d %H:%M:%S")
+
 # =========================
-# کانفیگ پیش‌فرض
+# کانفیگ
 # =========================
+
+CONFIG_PATH = os.path.join(DATA_DIR, "config_v4.json")
 
 DEFAULT_CONFIG = {
     "symbols_1h": [
@@ -112,19 +167,33 @@ DEFAULT_CONFIG = {
     "chat_1h": None,
     "chat_4h": None,
     "chat_1d": None,
-    "chat_15m": None
+    "chat_15m": None,
+
+    "last_cycle_1h": None,
+    "last_cycle_4h": None,
+    "last_cycle_1d": None,
+    "last_cycle_15m": None
 }
 
 def save_config(cfg: dict):
-    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
+    try:
+        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, ensure_ascii=False, indent=2)
+        log_info("Config saved.")
+    except Exception as e:
+        log_exception(e, "save_config")
 
 def load_config() -> dict:
-    if not os.path.exists(CONFIG_PATH):
-        save_config(DEFAULT_CONFIG)
+    try:
+        if not os.path.exists(CONFIG_PATH):
+            save_config(DEFAULT_CONFIG)
+            return DEFAULT_CONFIG.copy()
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+        return cfg
+    except Exception as e:
+        log_exception(e, "load_config")
         return DEFAULT_CONFIG.copy()
-    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)
 
 def reset_config():
     cfg = DEFAULT_CONFIG.copy()
@@ -135,20 +204,24 @@ def reset_config():
 # ساخت ربات‌ها
 # =========================
 
-def create_bot(token: str):
+def create_bot(token: str, name: str):
     token = (token or "").strip()
     if not token:
+        log_info(f"Bot {name}: token empty.")
         return None
     try:
-        return telebot.TeleBot(token, parse_mode="HTML")
-    except:
+        bot = telebot.TeleBot(token, parse_mode="HTML")
+        log_info(f"Bot {name} created.")
+        return bot
+    except Exception as e:
+        log_exception(e, f"create_bot_{name}")
         return None
 
-bot_main  = create_bot(TOKEN_MAIN)
-bot_1h    = create_bot(TOKEN_1H)
-bot_4h    = create_bot(TOKEN_4H)
-bot_1d    = create_bot(TOKEN_1D)
-bot_15m   = create_bot(TOKEN_15M)
+bot_main  = create_bot(TOKEN_MAIN,  "MAIN")
+bot_1h    = create_bot(TOKEN_1H,    "1H")
+bot_4h    = create_bot(TOKEN_4H,    "4H")
+bot_1d    = create_bot(TOKEN_1D,    "1D")
+bot_15m   = create_bot(TOKEN_15M,   "15M")
 
 LAST_ALARMS = {
     "main": [],
@@ -159,7 +232,7 @@ LAST_ALARMS = {
 }
 
 HELP_TEXT_MAIN = """
-Modu Bazler v4.0 – ربات اصلی مدیریت مرکزی
+Modu Bazler v4.1 – ربات اصلی مدیریت مرکزی
 
 دستورات:
 /start – ثبت چت و نمایش منوی اصلی
@@ -194,6 +267,8 @@ def _kucoin_interval(i: str) -> str:
 
 def fetch_ohlc(symbol: str, interval: str, lookback_days: int, max_bars: int) -> pd.DataFrame:
     limit = max(200, max_bars)
+    log_info(f"fetch_ohlc: {symbol} {interval} limit={limit}")
+    # Binance
     try:
         url = "https://api.binance.com/api/v3/klines"
         r = requests.get(url, params={"symbol": symbol, "interval": _binance_interval(interval), "limit": limit}, timeout=10)
@@ -205,9 +280,11 @@ def fetch_ohlc(symbol: str, interval: str, lookback_days: int, max_bars: int) ->
         df = pd.DataFrame(rows, columns=["t","o","h","l","c","v"])
         df["t"] = pd.to_datetime(df["t"], unit="ms", utc=True)
         df.set_index("t", inplace=True)
+        log_info(f"fetch_ohlc: Binance OK {symbol} {interval} rows={len(df)}")
         return df
-    except:
-        pass
+    except Exception as e:
+        log_exception(e, f"fetch_ohlc_binance_{symbol}_{interval}")
+    # KuCoin
     try:
         sym = symbol.replace("USDT", "-USDT")
         end = int(now_utc().timestamp())
@@ -223,36 +300,46 @@ def fetch_ohlc(symbol: str, interval: str, lookback_days: int, max_bars: int) ->
         df["t"] = pd.to_datetime(df["t"], unit="s", utc=True)
         df.sort_values("t", inplace=True)
         df.set_index("t", inplace=True)
+        log_info(f"fetch_ohlc: KuCoin OK {symbol} {interval} rows={len(df)}")
         return df
-    except:
+    except Exception as e:
+        log_exception(e, f"fetch_ohlc_kucoin_{symbol}_{interval}")
         return pd.DataFrame()
 
 def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
-    df["SMA20"]  = df["c"].rolling(20).mean()
-    df["SMA100"] = df["c"].rolling(100).mean()
-    df["SMA200"] = df["c"].rolling(200).mean()
-    df["WMA20"] = df["c"].rolling(20).apply(lambda x: np.average(x, weights=np.arange(1, len(x)+1)), raw=True)
-    df["WMA20_slope"] = df["WMA20"].diff()
-    delta = df["c"].diff()
-    gain = np.where(delta > 0, delta, 0.0)
-    loss = np.where(delta < 0, -delta, 0.0)
-    roll_gain = pd.Series(gain, index=df.index).rolling(14).mean()
-    roll_loss = pd.Series(loss, index=df.index).rolling(14).mean()
-    rs = roll_gain / (roll_loss + 1e-9)
-    df["RSI14"] = 100 - (100 / (1 + rs))
-    ema12 = df["c"].ewm(span=12, adjust=False).mean()
-    ema26 = df["c"].ewm(span=26, adjust=False).mean()
-    df["MACD"] = ema12 - ema26
-    df["MACD_signal"] = df["MACD"].ewm(span=9, adjust=False).mean()
-    df["MACD_hist"] = df["MACD"] - df["MACD_signal"]
-    return df
+    if df.empty:
+        return df
+    try:
+        df["SMA20"]  = df["c"].rolling(20).mean()
+        df["SMA100"] = df["c"].rolling(100).mean()
+        df["SMA200"] = df["c"].rolling(200).mean()
+        df["WMA20"] = df["c"].rolling(20).apply(lambda x: np.average(x, weights=np.arange(1, len(x)+1)), raw=True)
+        df["WMA20_slope"] = df["WMA20"].diff()
+        delta = df["c"].diff()
+        gain = np.where(delta > 0, delta, 0.0)
+        loss = np.where(delta < 0, -delta, 0.0)
+        roll_gain = pd.Series(gain, index=df.index).rolling(14).mean()
+        roll_loss = pd.Series(loss, index=df.index).rolling(14).mean()
+        rs = roll_gain / (roll_loss + 1e-9)
+        df["RSI14"] = 100 - (100 / (1 + rs))
+        ema12 = df["c"].ewm(span=12, adjust=False).mean()
+        ema26 = df["c"].ewm(span=26, adjust=False).mean()
+        df["MACD"] = ema12 - ema26
+        df["MACD_signal"] = df["MACD"].ewm(span=9, adjust=False).mean()
+        df["MACD_hist"] = df["MACD"] - df["MACD_signal"]
+        log_info(f"compute_indicators: OK rows={len(df)}")
+        return df
+    except Exception as e:
+        log_exception(e, "compute_indicators")
+        return df
 
 def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars: int, png_name: str) -> dict:
     df = fetch_ohlc(symbol, interval, lookback_days, max_bars)
     if df.empty:
         df = pd.DataFrame(columns=["o","h","l","c","v"])
         df.index = pd.to_datetime([])
+        log_info(f"create_plotly_chart: empty df {symbol} {interval}")
     else:
         df = df[["o","h","l","c","v"]]
     df = compute_indicators(df)
@@ -277,7 +364,11 @@ def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars
     fig.add_annotation(text=f"{symbol} – {interval}", xref="paper", yref="paper", x=0.5, y=1.05, showarrow=False, font=dict(size=30, color="black"))
     fig.update_yaxes(side="right", showgrid=True)
     png_path = os.path.join(CHARTS_DIR, png_name)
-    fig.write_image(png_path, width=1800, height=1100, scale=3)
+    try:
+        fig.write_image(png_path, width=1800, height=1100, scale=3)
+        log_info(f"create_plotly_chart: image saved {png_path}")
+    except Exception as e:
+        log_exception(e, "create_plotly_chart_write_image")
     return {
         "symbol": symbol,
         "interval": interval,
@@ -333,7 +424,49 @@ def detect_alarms(cfg: dict, info: dict, group: str):
     if alarms:
         record = {"symbol": info["symbol"], "interval": info["interval"], "time": info["created_at"], "alarms": alarms}
         LAST_ALARMS[group] = [record]
+        log_info(f"detect_alarms: {group} {info['symbol']} alarms={alarms}")
     return alarms
+
+# =========================
+# ابزار ارسال پیام با fallback
+# =========================
+
+def safe_send_message(bot, chat_id, text):
+    try:
+        if bot and chat_id:
+            bot.send_message(chat_id, text)
+        elif bot_main and load_config().get("chat_main"):
+            bot_main.send_message(load_config().get("chat_main"), text)
+        else:
+            log_info(f"safe_send_message: no chat to send: {text}")
+    except Exception as e:
+        log_exception(e, "safe_send_message")
+
+def safe_send_photo(bot, chat_id, photo_path, caption=None):
+    try:
+        if bot and chat_id:
+            with open(photo_path, "rb") as f:
+                bot.send_photo(chat_id, f, caption=caption)
+        elif bot_main and load_config().get("chat_main"):
+            with open(photo_path, "rb") as f:
+                bot_main.send_photo(load_config().get("chat_main"), f, caption=caption)
+        else:
+            log_info(f"safe_send_photo: no chat to send photo {photo_path}")
+    except Exception as e:
+        log_exception(e, "safe_send_photo")
+
+def safe_send_document(bot, chat_id, doc_path, caption=None):
+    try:
+        if bot and chat_id:
+            with open(doc_path, "rb") as f:
+                bot.send_document(chat_id, f, caption=caption)
+        elif bot_main and load_config().get("chat_main"):
+            with open(doc_path, "rb") as f:
+                bot_main.send_document(load_config().get("chat_main"), f, caption=caption)
+        else:
+            log_info(f"safe_send_document: no chat to send doc {doc_path}")
+    except Exception as e:
+        log_exception(e, "safe_send_document")
 
 # =========================
 # اجرای سیکل‌ها برای هر ربات
@@ -342,7 +475,10 @@ def detect_alarms(cfg: dict, info: dict, group: str):
 def run_cycle(bot, group: str, chat_id: int, symbols: list, interval: str, lookback_days: int, max_bars: int, make_pdf: bool):
     cfg = load_config()
     batch_size = cfg.get("cycle_progress_batch", 5)
-    bot.send_message(chat_id, f"شروع چرخه {group}\n# {now_utc_str()} UTC")
+    if not chat_id:
+        chat_id = cfg.get("chat_main")
+    safe_send_message(bot, chat_id, f"شروع چرخه {group}\n# {now_utc_str()} UTC\n# {format_qatar(now_qatar())} قطر")
+    log_info(f"run_cycle: start {group} symbols={len(symbols)} chat={chat_id}")
     unique_symbols = list(dict.fromkeys(symbols))
     total = len(unique_symbols)
     processed = 0
@@ -353,31 +489,39 @@ def run_cycle(bot, group: str, chat_id: int, symbols: list, interval: str, lookb
         pdf_filename = os.path.join(PDF_DIR, f"{group}_{now_utc().strftime('%Y%m%d_%H%M%S')}.pdf")
         pdf = PdfPages(pdf_filename)
     for sym in unique_symbols:
-        processed += 1
-        if processed % batch_size == 0 or processed == 1 or processed == total:
-            bot.send_message(chat_id, f"چرخه {group}: {processed} از {total} نماد پردازش شد، {total - processed} باقی مانده.")
-        ts = now_utc().strftime("%Y%m%d_%H%M%S")
-        png = f"{group}_{sym}_{ts}.png"
-        info = create_plotly_chart(sym, interval, lookback_days, max_bars, png)
-        alarms = detect_alarms(cfg, info, group)
-        if alarms:
-            cycle_alarms.append({"symbol": sym, "interval": interval, "alarms": alarms})
-            caption = f"{sym} ({group})\n" + "\n".join(alarms)
-            with open(info["png_path"], "rb") as f:
-                bot.send_photo(chat_id, f, caption=caption)
-        if group == "1d" and pdf is not None:
-            img = plt.imread(info["png_path"])
-            fig, ax = plt.subplots(figsize=(10,6))
-            ax.imshow(img); ax.axis("off"); ax.set_title(f"{sym} – {group}")
-            pdf.savefig(fig); plt.close(fig)
-        time.sleep(1)
-    if group == "1d" and pdf is not None:
-        pdf.close()
         try:
-            with open(pdf_filename, "rb") as f:
-                bot.send_document(chat_id, f, caption=f"گزارش کامل روزانه – چرخه {group}")
-        except:
-            bot.send_message(chat_id, "ارسال PDF روزانه با مشکل مواجه شد.")
+            processed += 1
+            if processed % batch_size == 0 or processed == 1 or processed == total:
+                safe_send_message(bot, chat_id, f"چرخه {group}: {processed} از {total} نماد پردازش شد، {total - processed} باقی مانده.")
+            ts = now_utc().strftime("%Y%m%d_%H%M%S")
+            png = f"{group}_{sym}_{ts}.png"
+            info = create_plotly_chart(sym, interval, lookback_days, max_bars, png)
+            alarms = detect_alarms(cfg, info, group)
+            if alarms:
+                cycle_alarms.append({"symbol": sym, "interval": interval, "alarms": alarms})
+                caption = f"{sym} ({group})\n" + "\n".join(alarms)
+                safe_send_photo(bot, chat_id, info["png_path"], caption=caption)
+            else:
+                # برای تک نماد، اگر آلارم نیست، باز هم نمودار ارسال شود
+                if total == 1:
+                    caption = f"{sym} ({group}) – بدون آلارم خاص"
+                    safe_send_photo(bot, chat_id, info["png_path"], caption=caption)
+            if group == "1d" and pdf is not None:
+                img = plt.imread(info["png_path"])
+                fig, ax = plt.subplots(figsize=(10,6))
+                ax.imshow(img); ax.axis("off"); ax.set_title(f"{sym} – {group}")
+                pdf.savefig(fig); plt.close(fig)
+            time.sleep(1)
+        except Exception as e:
+            log_exception(e, f"run_cycle_symbol_{group}_{sym}")
+            safe_send_message(bot, chat_id, f"خطا در پردازش {sym} در چرخه {group}")
+    if group == "1d" and pdf is not None:
+        try:
+            pdf.close()
+            safe_send_document(bot, chat_id, pdf_filename, caption=f"گزارش کامل روزانه – چرخه {group}")
+        except Exception as e:
+            log_exception(e, "run_cycle_pdf_send")
+            safe_send_message(bot, chat_id, "ارسال PDF روزانه با مشکل مواجه شد.")
     if cycle_alarms:
         table = "جدول آلارم‌های این سیکل:\n\n"
         for item in cycle_alarms:
@@ -385,10 +529,13 @@ def run_cycle(bot, group: str, chat_id: int, symbols: list, interval: str, lookb
             for a in item["alarms"]:
                 table += f" - {a}\n"
             table += "\n"
-        bot.send_message(chat_id, table)
+        safe_send_message(bot, chat_id, table)
     else:
-        bot.send_message(chat_id, "در این سیکل هیچ آلارمی فعال نشد.")
-    bot.send_message(chat_id, f"پایان چرخه {group}")
+        safe_send_message(bot, chat_id, "در این سیکل هیچ آلارمی فعال نشد.")
+    safe_send_message(bot, chat_id, f"پایان چرخه {group}")
+    cfg[f"last_cycle_{group}"] = now_utc_str()
+    save_config(cfg)
+    log_info(f"run_cycle: end {group}")
 
 # =========================
 # منوی ربات اصلی
@@ -482,46 +629,54 @@ if bot_main:
     @bot_main.message_handler(func=lambda m: m.text == "اجرای فوری 1h")
     def main_run_1h(m):
         cfg = load_config()
-        chat = cfg.get("chat_1h") or m.chat.id
+        chat = cfg.get("chat_1h") or cfg.get("chat_main") or m.chat.id
         symbols = cfg["symbols_1h"][:50]
-        if bot_1h:
-            bot_main.send_message(m.chat.id, "اجرای فوری سیکل 1h در ربات 1h شروع شد.")
-            threading.Thread(target=run_cycle, args=(bot_1h,"1h",chat,symbols,cfg["interval_1h"],cfg["lookback_1h"],cfg["max_bars"],False), daemon=True).start()
-        else:
-            bot_main.send_message(m.chat.id, "توکن ربات 1h تنظیم نشده است.")
+        target_bot = bot_1h if bot_1h else bot_main
+        bot_main.send_message(m.chat.id, "اجرای فوری سیکل 1h شروع شد.")
+        threading.Thread(
+            target=run_cycle,
+            args=(target_bot,"1h",chat,symbols,cfg["interval_1h"],cfg["lookback_1h"],cfg["max_bars"],False),
+            daemon=True
+        ).start()
 
     @bot_main.message_handler(func=lambda m: m.text == "اجرای فوری 4h")
     def main_run_4h(m):
         cfg = load_config()
-        chat = cfg.get("chat_4h") or m.chat.id
+        chat = cfg.get("chat_4h") or cfg.get("chat_main") or m.chat.id
         symbols = cfg["symbols_4h"][:50]
-        if bot_4h:
-            bot_main.send_message(m.chat.id, "اجرای فوری سیکل 4h در ربات 4h شروع شد.")
-            threading.Thread(target=run_cycle, args=(bot_4h,"4h",chat,symbols,cfg["interval_4h"],cfg["lookback_4h"],cfg["max_bars"],False), daemon=True).start()
-        else:
-            bot_main.send_message(m.chat.id, "توکن ربات 4h تنظیم نشده است.")
+        target_bot = bot_4h if bot_4h else bot_main
+        bot_main.send_message(m.chat.id, "اجرای فوری سیکل 4h شروع شد.")
+        threading.Thread(
+            target=run_cycle,
+            args=(target_bot,"4h",chat,symbols,cfg["interval_4h"],cfg["lookback_4h"],cfg["max_bars"],False),
+            daemon=True
+        ).start()
 
     @bot_main.message_handler(func=lambda m: m.text == "اجرای فوری 1d")
     def main_run_1d(m):
         cfg = load_config()
-        chat = cfg.get("chat_1d") or m.chat.id
+        chat = cfg.get("chat_1d") or cfg.get("chat_main") or m.chat.id
         symbols = cfg["symbols_1d"][:100]
-        if bot_1d:
-            bot_main.send_message(m.chat.id, "اجرای فوری سیکل 1d در ربات 1d شروع شد.")
-            threading.Thread(target=run_cycle, args=(bot_1d,"1d",chat,symbols,cfg["interval_1d"],cfg["lookback_1d"],cfg["max_bars"],cfg.get("make_pdf",True)), daemon=True).start()
-        else:
-            bot_main.send_message(m.chat.id, "توکن ربات 1d تنظیم نشده است.")
+        target_bot = bot_1d if bot_1d else bot_main
+        bot_main.send_message(m.chat.id, "اجرای فوری سیکل 1d شروع شد.")
+        threading.Thread(
+            target=run_cycle,
+            args=(target_bot,"1d",chat,symbols,cfg["interval_1d"],cfg["lookback_1d"],cfg["max_bars"],cfg.get("make_pdf",True)),
+            daemon=True
+        ).start()
 
     @bot_main.message_handler(func=lambda m: m.text == "اجرای فوری 15m")
     def main_run_15m(m):
         cfg = load_config()
-        chat = cfg.get("chat_15m") or m.chat.id
+        chat = cfg.get("chat_15m") or cfg.get("chat_main") or m.chat.id
         symbols = cfg["symbols_15m"][:20]
-        if bot_15m:
-            bot_main.send_message(m.chat.id, "اجرای فوری سیکل 15m در ربات 15m شروع شد.")
-            threading.Thread(target=run_cycle, args=(bot_15m,"15m",chat,symbols,cfg["interval_15m"],cfg["lookback_15m"],cfg["max_bars"],False), daemon=True).start()
-        else:
-            bot_main.send_message(m.chat.id, "توکن ربات 15m تنظیم نشده است.")
+        target_bot = bot_15m if bot_15m else bot_main
+        bot_main.send_message(m.chat.id, "اجرای فوری سیکل 15m شروع شد.")
+        threading.Thread(
+            target=run_cycle,
+            args=(target_bot,"15m",chat,symbols,cfg["interval_15m"],cfg["lookback_15m"],cfg["max_bars"],False),
+            daemon=True
+        ).start()
 
     # اجرای تک نماد
     @bot_main.message_handler(func=lambda m: m.text.startswith("اجرای تک نماد"))
@@ -543,24 +698,42 @@ if bot_main:
     def single_symbol_run(m, group: str):
         symbol = m.text.strip().upper()
         cfg = load_config()
-        if group == "1h" and bot_1h:
-            chat = cfg.get("chat_1h") or m.chat.id
+        if group == "1h":
+            chat = cfg.get("chat_1h") or cfg.get("chat_main") or m.chat.id
+            target_bot = bot_1h if bot_1h else bot_main
             bot_main.send_message(m.chat.id, f"در حال بررسی {symbol} در ربات 1h ...")
-            threading.Thread(target=run_cycle, args=(bot_1h,"1h",chat,[symbol],cfg["interval_1h"],cfg["lookback_1h"],cfg["max_bars"],False), daemon=True).start()
-        elif group == "4h" and bot_4h:
-            chat = cfg.get("chat_4h") or m.chat.id
+            threading.Thread(
+                target=run_cycle,
+                args=(target_bot,"1h",chat,[symbol],cfg["interval_1h"],cfg["lookback_1h"],cfg["max_bars"],False),
+                daemon=True
+            ).start()
+        elif group == "4h":
+            chat = cfg.get("chat_4h") or cfg.get("chat_main") or m.chat.id
+            target_bot = bot_4h if bot_4h else bot_main
             bot_main.send_message(m.chat.id, f"در حال بررسی {symbol} در ربات 4h ...")
-            threading.Thread(target=run_cycle, args=(bot_4h,"4h",chat,[symbol],cfg["interval_4h"],cfg["lookback_4h"],cfg["max_bars"],False), daemon=True).start()
-        elif group == "1d" and bot_1d:
-            chat = cfg.get("chat_1d") or m.chat.id
+            threading.Thread(
+                target=run_cycle,
+                args=(target_bot,"4h",chat,[symbol],cfg["interval_4h"],cfg["lookback_4h"],cfg["max_bars"],False),
+                daemon=True
+            ).start()
+        elif group == "1d":
+            chat = cfg.get("chat_1d") or cfg.get("chat_main") or m.chat.id
+            target_bot = bot_1d if bot_1d else bot_main
             bot_main.send_message(m.chat.id, f"در حال بررسی {symbol} در ربات 1d ...")
-            threading.Thread(target=run_cycle, args=(bot_1d,"1d",chat,[symbol],cfg["interval_1d"],cfg["lookback_1d"],cfg["max_bars"],cfg.get("make_pdf",True)), daemon=True).start()
-        elif group == "15m" and bot_15m:
-            chat = cfg.get("chat_15m") or m.chat.id
+            threading.Thread(
+                target=run_cycle,
+                args=(target_bot,"1d",chat,[symbol],cfg["interval_1d"],cfg["lookback_1d"],cfg["max_bars"],cfg.get("make_pdf",True)),
+                daemon=True
+            ).start()
+        elif group == "15m":
+            chat = cfg.get("chat_15m") or cfg.get("chat_main") or m.chat.id
+            target_bot = bot_15m if bot_15m else bot_main
             bot_main.send_message(m.chat.id, f"در حال بررسی {symbol} در ربات 15m ...")
-            threading.Thread(target=run_cycle, args=(bot_15m,"15m",chat,[symbol],cfg["interval_15m"],cfg["lookback_15m"],cfg["max_bars"],False), daemon=True).start()
-        else:
-            bot_main.send_message(m.chat.id, "توکن ربات مربوطه تنظیم نشده است.")
+            threading.Thread(
+                target=run_cycle,
+                args=(target_bot,"15m",chat,[symbol],cfg["interval_15m"],cfg["lookback_15m"],cfg["max_bars"],False),
+                daemon=True
+            ).start()
 
     # مدیریت نمادها
     @bot_main.message_handler(func=lambda m: m.text == "مدیریت نمادهای 1h")
@@ -736,20 +909,59 @@ if bot_15m:
 
 def start_initial_cycles_all():
     cfg = load_config()
-    if not bot_main:
-        return
     chat_main = cfg.get("chat_main")
     if not chat_main:
+        log_info("start_initial_cycles_all: no chat_main")
         return
-    bot_main.send_message(chat_main, "اجرای اولیه ۴ سیکل در ربات‌های مربوطه شروع شد.")
-    if bot_1h:
-        threading.Thread(target=run_cycle, args=(bot_1h,"1h",cfg.get("chat_1h") or chat_main,cfg["symbols_1h"][:50],cfg["interval_1h"],cfg["lookback_1h"],cfg["max_bars"],False), daemon=True).start()
-    if bot_4h:
-        threading.Thread(target=run_cycle, args=(bot_4h,"4h",cfg.get("chat_4h") or chat_main,cfg["symbols_4h"][:50],cfg["interval_4h"],cfg["lookback_4h"],cfg["max_bars"],False), daemon=True).start()
-    if bot_1d:
-        threading.Thread(target=run_cycle, args=(bot_1d,"1d",cfg.get("chat_1d") or chat_main,cfg["symbols_1d"][:100],cfg["interval_1d"],cfg["lookback_1d"],cfg["max_bars"],cfg.get("make_pdf",True)), daemon=True).start()
-    if bot_15m:
-        threading.Thread(target=run_cycle, args=(bot_15m,"15m",cfg.get("chat_15m") or chat_main,cfg["symbols_15m"][:20],cfg["interval_15m"],cfg["lookback_15m"],cfg["max_bars"],False), daemon=True).start()
+    safe_send_message(bot_main, chat_main, "اجرای اولیه ۴ سیکل در ربات‌های مربوطه شروع شد.")
+    # 1h
+    try:
+        symbols = cfg["symbols_1h"][:50]
+        target_bot = bot_1h if bot_1h else bot_main
+        chat = cfg.get("chat_1h") or chat_main
+        threading.Thread(
+            target=run_cycle,
+            args=(target_bot,"1h",chat,symbols,cfg["interval_1h"],cfg["lookback_1h"],cfg["max_bars"],False),
+            daemon=True
+        ).start()
+    except Exception as e:
+        log_exception(e, "start_initial_1h")
+    # 4h
+    try:
+        symbols = cfg["symbols_4h"][:50]
+        target_bot = bot_4h if bot_4h else bot_main
+        chat = cfg.get("chat_4h") or chat_main
+        threading.Thread(
+            target=run_cycle,
+            args=(target_bot,"4h",chat,symbols,cfg["interval_4h"],cfg["lookback_4h"],cfg["max_bars"],False),
+            daemon=True
+        ).start()
+    except Exception as e:
+        log_exception(e, "start_initial_4h")
+    # 1d
+    try:
+        symbols = cfg["symbols_1d"][:100]
+        target_bot = bot_1d if bot_1d else bot_main
+        chat = cfg.get("chat_1d") or chat_main
+        threading.Thread(
+            target=run_cycle,
+            args=(target_bot,"1d",chat,symbols,cfg["interval_1d"],cfg["lookback_1d"],cfg["max_bars"],cfg.get("make_pdf",True)),
+            daemon=True
+        ).start()
+    except Exception as e:
+        log_exception(e, "start_initial_1d")
+    # 15m
+    try:
+        symbols = cfg["symbols_15m"][:20]
+        target_bot = bot_15m if bot_15m else bot_main
+        chat = cfg.get("chat_15m") or chat_main
+        threading.Thread(
+            target=run_cycle,
+            args=(target_bot,"15m",chat,symbols,cfg["interval_15m"],cfg["lookback_15m"],cfg["max_bars"],False),
+            daemon=True
+        ).start()
+    except Exception as e:
+        log_exception(e, "start_initial_15m")
 
 # =========================
 # لوپ‌های زمان‌بندی (قطر)
@@ -757,65 +969,105 @@ def start_initial_cycles_all():
 
 def loop_1h():
     while True:
-        cfg = load_config()
-        chat = cfg.get("chat_1h")
-        if not bot_1h or not chat:
-            time.sleep(10); continue
-        now = now_qatar()
-        if now.minute == 22:
-            symbols = cfg["symbols_1h"][:50]
-            threading.Thread(target=run_cycle, args=(bot_1h,"1h",chat,symbols,cfg["interval_1h"],cfg["lookback_1h"],cfg["max_bars"],False), daemon=True).start()
-            time.sleep(60)
-        time.sleep(20)
+        try:
+            cfg = load_config()
+            chat = cfg.get("chat_1h") or cfg.get("chat_main")
+            if not chat:
+                time.sleep(10); continue
+            target_bot = bot_1h if bot_1h else bot_main
+            now = now_qatar()
+            if now.minute == 22:
+                symbols = cfg["symbols_1h"][:50]
+                threading.Thread(
+                    target=run_cycle,
+                    args=(target_bot,"1h",chat,symbols,cfg["interval_1h"],cfg["lookback_1h"],cfg["max_bars"],False),
+                    daemon=True
+                ).start()
+                time.sleep(60)
+            time.sleep(20)
+        except Exception as e:
+            log_exception(e, "loop_1h")
+            time.sleep(30)
 
 def loop_4h():
     times = [(2,7),(6,7),(10,7),(14,7),(18,7),(22,7)]
     while True:
-        cfg = load_config()
-        chat = cfg.get("chat_4h")
-        if not bot_4h or not chat:
-            time.sleep(10); continue
-        now = now_qatar()
-        for h,m in times:
-            if now.hour == h and now.minute == m:
-                symbols = cfg["symbols_4h"][:50]
-                threading.Thread(target=run_cycle, args=(bot_4h,"4h",chat,symbols,cfg["interval_4h"],cfg["lookback_4h"],cfg["max_bars"],False), daemon=True).start()
-                time.sleep(60)
-        time.sleep(20)
+        try:
+            cfg = load_config()
+            chat = cfg.get("chat_4h") or cfg.get("chat_main")
+            if not chat:
+                time.sleep(10); continue
+            target_bot = bot_4h if bot_4h else bot_main
+            now = now_qatar()
+            for h,m in times:
+                if now.hour == h and now.minute == m:
+                    symbols = cfg["symbols_4h"][:50]
+                    threading.Thread(
+                        target=run_cycle,
+                        args=(target_bot,"4h",chat,symbols,cfg["interval_4h"],cfg["lookback_4h"],cfg["max_bars"],False),
+                        daemon=True
+                    ).start()
+                    time.sleep(60)
+            time.sleep(20)
+        except Exception as e:
+            log_exception(e, "loop_4h")
+            time.sleep(30)
 
 def loop_1d():
     while True:
-        cfg = load_config()
-        chat = cfg.get("chat_1d")
-        if not bot_1d or not chat:
-            time.sleep(10); continue
-        now = now_qatar()
-        if now.hour == 1 and now.minute == 5:
-            symbols = cfg["symbols_1d"][:100]
-            threading.Thread(target=run_cycle, args=(bot_1d,"1d",chat,symbols,cfg["interval_1d"],cfg["lookback_1d"],cfg["max_bars"],cfg.get("make_pdf",True)), daemon=True).start()
-            time.sleep(60)
-        time.sleep(20)
+        try:
+            cfg = load_config()
+            chat = cfg.get("chat_1d") or cfg.get("chat_main")
+            if not chat:
+                time.sleep(10); continue
+            target_bot = bot_1d if bot_1d else bot_main
+            now = now_qatar()
+            if now.hour == 1 and now.minute == 5:
+                symbols = cfg["symbols_1d"][:100]
+                threading.Thread(
+                    target=run_cycle,
+                    args=(target_bot,"1d",chat,symbols,cfg["interval_1d"],cfg["lookback_1d"],cfg["max_bars"],cfg.get("make_pdf",True)),
+                    daemon=True
+                ).start()
+                time.sleep(60)
+            time.sleep(20)
+        except Exception as e:
+            log_exception(e, "loop_1d")
+            time.sleep(30)
 
 def loop_15m():
     while True:
-        cfg = load_config()
-        chat = cfg.get("chat_15m")
-        if not bot_15m or not chat:
-            time.sleep(10); continue
-        now = now_qatar()
-        if now.minute % 15 == 0:
-            symbols = cfg["symbols_15m"][:20]
-            threading.Thread(target=run_cycle, args=(bot_15m,"15m",chat,symbols,cfg["interval_15m"],cfg["lookback_15m"],cfg["max_bars"],False), daemon=True).start()
-            time.sleep(60)
-        time.sleep(20)
+        try:
+            cfg = load_config()
+            chat = cfg.get("chat_15m") or cfg.get("chat_main")
+            if not chat:
+                time.sleep(10); continue
+            target_bot = bot_15m if bot_15m else bot_main
+            now = now_qatar()
+            if now.minute % 15 == 0:
+                symbols = cfg["symbols_15m"][:20]
+                threading.Thread(
+                    target=run_cycle,
+                    args=(target_bot,"15m",chat,symbols,cfg["interval_15m"],cfg["lookback_15m"],cfg["max_bars"],False),
+                    daemon=True
+                ).start()
+                time.sleep(60)
+            time.sleep(20)
+        except Exception as e:
+            log_exception(e, "loop_15m")
+            time.sleep(30)
 
 # =========================
 # راه‌اندازی
 # =========================
 
 if __name__ == "__main__":
+    log_info("Modu Bazler v4.1 starting...")
     if ADMIN_CHAT_ID and bot_main:
-        bot_main.send_message(ADMIN_CHAT_ID, "Modu Bazler v4.0 – ربات اصلی راه‌اندازی شد.")
+        try:
+            bot_main.send_message(ADMIN_CHAT_ID, "Modu Bazler v4.1 – ربات اصلی راه‌اندازی شد.")
+        except Exception as e:
+            log_exception(e, "send_admin_start")
 
     if bot_main:
         threading.Thread(target=bot_main.infinity_polling, daemon=True).start()
