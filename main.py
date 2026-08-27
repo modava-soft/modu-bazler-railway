@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Modu Bazler – main.py (نسخهٔ ساده‌شده با مدیریت نمادها در هر ربات و ریست کامل)
+# Modu Bazler – نسخهٔ دوبلر حرفه‌ای با مدیریت کامل نمادها، آلارم‌ها، تنظیمات پیشرفته و سیکل‌های خودکار
 
 import os, json, time, threading, datetime as dt
 import requests, numpy as np, pandas as pd
@@ -19,10 +19,9 @@ from telebot import types
 BASE_DIR   = os.path.abspath(os.path.dirname(__file__))
 DATA_DIR   = os.path.join(BASE_DIR, "data")
 CHARTS_DIR = os.path.join(DATA_DIR, "charts")
-HTML_DIR   = os.path.join(DATA_DIR, "html")
 PDF_DIR    = os.path.join(DATA_DIR, "pdf")
 
-for d in [DATA_DIR, CHARTS_DIR, HTML_DIR, PDF_DIR]:
+for d in [DATA_DIR, CHARTS_DIR, PDF_DIR]:
     os.makedirs(d, exist_ok=True)
 
 CONFIG_PATH = os.path.join(DATA_DIR, "config.json")
@@ -31,6 +30,7 @@ CONFIG_PATH = os.path.join(DATA_DIR, "config.json")
 QATAR_TZ = dt.timezone(dt.timedelta(hours=3))
 
 DEFAULT_CONFIG = {
+    # نمادها – فقط تعداد استفاده می‌شود، ترتیب مهم نیست
     "symbols_1h": [
         "BTCUSDT","ETHUSDT","BNBUSDT","XRPUSDT","ADAUSDT",
         "SOLUSDT","DOGEUSDT","DOTUSDT","MATICUSDT","LTCUSDT",
@@ -97,6 +97,7 @@ DEFAULT_CONFIG = {
 
     "max_bars": 300,
 
+    # آلارم‌ها
     "alarm_wma_direction": True,
     "alarm_cross_sma20": False,
     "alarm_cross_sma100": False,
@@ -105,11 +106,14 @@ DEFAULT_CONFIG = {
     "alarm_sma100_direction": False,
     "alarm_sma200_direction": False,
 
+    # PDF روزانه
     "make_pdf": True,
 
-    "chat_id_main": None,
+    # تنظیمات پیشرفته
+    "cycle_progress_batch": 5,
 
-    "cycle_progress_batch": 5
+    # چت اصلی
+    "chat_id_main": None
 }
 
 def save_config(cfg: dict):
@@ -153,7 +157,7 @@ def create_bot(token: str):
 bot = create_bot(TOKEN_MAIN)
 
 HELP_TEXT = """
-Modu Bazler – نسخهٔ ساده با مدیریت نمادها در هر ربات و ریست کامل
+Modu Bazler – نسخهٔ دوبلر حرفه‌ای
 
 دستورات:
 /start – ثبت چت و نمایش منو
@@ -162,6 +166,7 @@ Modu Bazler – نسخهٔ ساده با مدیریت نمادها در هر ر�
 /start_cycle_4h – اجرای فوری سیکل 4h
 /start_cycle_1d – اجرای فوری سیکل روزانه
 /start_cycle_15m – اجرای فوری سیکل 15m
+/check_symbol – اجرای تک نماد (1h)
 
 زمان‌بندی خودکار (بر اساس زمان قطر – UTC+3):
 - 1h: هر ساعت در دقیقه 22
@@ -186,10 +191,12 @@ def send_main_menu(chat_id):
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
     kb.row("اجرای فوری 1h", "اجرای فوری 4h")
     kb.row("اجرای فوری 1d", "اجرای فوری 15m")
+    kb.row("اجرای تک نماد 1h")
     kb.row("مدیریت نمادهای 1h", "مدیریت نمادهای 4h")
     kb.row("مدیریت نمادهای 1d", "مدیریت نمادهای 15m")
     kb.row("تنظیم آلارم‌ها", "گزارش آلارم‌ها")
-    kb.row("ریست کامل برنامه", "راهنما")
+    kb.row("تنظیمات پیشرفته", "ریست کامل برنامه")
+    kb.row("راهنما")
     bot.send_message(chat_id, "منوی اصلی:", reply_markup=kb)
 
 def show_symbol_menu(chat_id, group: str):
@@ -271,62 +278,79 @@ if bot:
     def help_btn(m):
         bot.send_message(m.chat.id, HELP_TEXT)
 
-    # اجرای فوری
+    # اجرای فوری – ۱h
     @bot.message_handler(commands=["start_cycle_1h"])
     @bot.message_handler(func=lambda m: m.text == "اجرای فوری 1h")
     def start_cycle_1h(m):
         cfg = load_config()
         chat_id = cfg.get("chat_id_main", m.chat.id)
-        symbols = cfg["symbols_1h"]
-        symbols = symbols[:50]
+        symbols = cfg["symbols_1h"][:50]
+        bot.send_message(chat_id, "اجرای فوری سیکل 1h شروع شد.")
         threading.Thread(
             target=run_cycle,
             args=("1h", chat_id, symbols, cfg["interval_1h"], cfg["lookback_1h"], cfg["max_bars"]),
             daemon=True
         ).start()
-        bot.send_message(chat_id, "اجرای فوری سیکل 1h شروع شد.")
 
+    # اجرای فوری – ۴h
     @bot.message_handler(commands=["start_cycle_4h"])
     @bot.message_handler(func=lambda m: m.text == "اجرای فوری 4h")
     def start_cycle_4h(m):
         cfg = load_config()
         chat_id = cfg.get("chat_id_main", m.chat.id)
-        symbols = cfg["symbols_4h"]
-        symbols = symbols[:50]
+        symbols = cfg["symbols_4h"][:50]
+        bot.send_message(chat_id, "اجرای فوری سیکل 4h شروع شد.")
         threading.Thread(
             target=run_cycle,
             args=("4h", chat_id, symbols, cfg["interval_4h"], cfg["lookback_4h"], cfg["max_bars"]),
             daemon=True
         ).start()
-        bot.send_message(chat_id, "اجرای فوری سیکل 4h شروع شد.")
 
+    # اجرای فوری – روزانه
     @bot.message_handler(commands=["start_cycle_1d"])
     @bot.message_handler(func=lambda m: m.text == "اجرای فوری 1d")
     def start_cycle_1d(m):
         cfg = load_config()
         chat_id = cfg.get("chat_id_main", m.chat.id)
-        symbols = cfg["symbols_1d"]
-        symbols = symbols[:100]
+        symbols = cfg["symbols_1d"][:100]
+        bot.send_message(chat_id, "اجرای فوری سیکل 1d شروع شد.")
         threading.Thread(
             target=run_cycle,
             args=("1d", chat_id, symbols, cfg["interval_1d"], cfg["lookback_1d"], cfg["max_bars"]),
             daemon=True
         ).start()
-        bot.send_message(chat_id, "اجرای فوری سیکل 1d شروع شد.")
 
+    # اجرای فوری – ۱۵m
     @bot.message_handler(commands=["start_cycle_15m"])
     @bot.message_handler(func=lambda m: m.text == "اجرای فوری 15m")
     def start_cycle_15m(m):
         cfg = load_config()
         chat_id = cfg.get("chat_id_main", m.chat.id)
-        symbols = cfg["symbols_15m"]
-        symbols = symbols[:20]
+        symbols = cfg["symbols_15m"][:20]
+        bot.send_message(chat_id, "اجرای فوری سیکل 15m شروع شد.")
         threading.Thread(
             target=run_cycle,
             args=("15m", chat_id, symbols, cfg["interval_15m"], cfg["lookback_15m"], cfg["max_bars"]),
             daemon=True
         ).start()
-        bot.send_message(chat_id, "اجرای فوری سیکل 15m شروع شد.")
+
+    # اجرای تک نماد 1h
+    @bot.message_handler(commands=["check_symbol"])
+    @bot.message_handler(func=lambda m: m.text == "اجرای تک نماد 1h")
+    def check_symbol(m):
+        msg = bot.send_message(m.chat.id, "نماد مورد نظر را وارد کنید (مثلاً BTCUSDT):")
+        bot.register_next_step_handler(msg, process_single_symbol)
+
+    def process_single_symbol(m):
+        symbol = m.text.strip().upper()
+        cfg = load_config()
+        bot.send_message(m.chat.id, f"در حال بررسی پیشرفته {symbol} در تایم‌فریم 1h ...")
+        ts = now_utc().strftime("%Y%m%d_%H%M%S")
+        png = f"single_1h_{symbol}_{ts}.png"
+        info = create_plotly_chart(symbol, cfg["interval_1h"], cfg["lookback_1h"], cfg["max_bars"], png)
+        with open(info["png_path"], "rb") as f:
+            bot.send_photo(m.chat.id, f, caption=f"{symbol} – بررسی پیشرفته 1h")
+        bot.send_message(m.chat.id, "بررسی تک نماد پایان یافت.")
 
     # مدیریت نمادها
     @bot.message_handler(func=lambda m: m.text == "مدیریت نمادهای 1h")
@@ -453,6 +477,35 @@ if bot:
         if not txt:
             txt = "هیچ آلارمی ثبت نشده است."
         bot.send_message(m.chat.id, txt)
+
+    # تنظیمات پیشرفته
+    @bot.message_handler(func=lambda m: m.text == "تنظیمات پیشرفته")
+    def advanced_settings(m):
+        cfg = load_config()
+        kb = types.InlineKeyboardMarkup()
+        kb.add(types.InlineKeyboardButton(f"PDF روزانه ({'ON' if cfg.get('make_pdf', True) else 'OFF'})", callback_data="adv_make_pdf"))
+        kb.add(types.InlineKeyboardButton(f"batch سیکل = {cfg.get('cycle_progress_batch',5)}", callback_data="adv_cycle_batch_toggle"))
+        kb.add(types.InlineKeyboardButton("ریست کامل برنامه", callback_data="adv_reset_app"))
+        bot.send_message(m.chat.id, "تنظیمات پیشرفته:", reply_markup=kb)
+
+    @bot.callback_query_handler(func=lambda c: c.data.startswith("adv_"))
+    def advanced_settings_handler(c):
+        cfg = load_config()
+        if c.data == "adv_make_pdf":
+            cfg["make_pdf"] = not cfg.get("make_pdf", True)
+            save_config(cfg)
+            bot.answer_callback_query(c.id, f"make_pdf -> {'ON' if cfg['make_pdf'] else 'OFF'}")
+        elif c.data == "adv_cycle_batch_toggle":
+            current = cfg.get("cycle_progress_batch", 5)
+            cfg["cycle_progress_batch"] = 10 if current == 5 else 5
+            save_config(cfg)
+            bot.answer_callback_query(c.id, f"cycle_progress_batch -> {cfg['cycle_progress_batch']}")
+        elif c.data == "adv_reset_app":
+            cfg = reset_config()
+            cfg["chat_id_main"] = c.message.chat.id
+            save_config(cfg)
+            bot.answer_callback_query(c.id, "برنامه و تنظیمات به حالت اولیه برگشت.")
+        advanced_settings(c.message)
 
 # =========================
 # داده‌ها و اندیکاتورها
@@ -785,7 +838,7 @@ def loop_15m():
 
 if __name__ == "__main__":
     if ADMIN_CHAT and bot:
-        bot.send_message(ADMIN_CHAT, "ربات اصلی راه‌اندازی شد (مدیریت ۴ سیکل).")
+        bot.send_message(ADMIN_CHAT, "ربات اصلی دوبلر راه‌اندازی شد (مدیریت ۴ سیکل و تنظیمات پیشرفته).")
 
     if bot:
         threading.Thread(target=bot.infinity_polling, daemon=True).start()
