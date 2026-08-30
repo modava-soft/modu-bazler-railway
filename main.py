@@ -946,7 +946,7 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str, lookb
     cfg = load_config()
     batch_size = cfg.get("cycle_progress_batch", 5)
 
-    bot.send_message(chat_id, f"شروع چرخه {group}\n# {now_utc_str()} UTC")
+    #bot.send_message(chat_id, f"شروع چرخه {group}\n# {now_utc_str()} UTC")
 
     if isinstance(symbols, str):
         symbols = [symbols]
@@ -971,11 +971,12 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str, lookb
     for sym in unique_symbols:
         processed += 1
 
-        if processed % batch_size == 0 or processed == 1 or processed == total:
-            bot.send_message(
-                chat_id,
-                f"چرخه {group}: {processed} از {total} نماد پردازش شد، {total - processed} باقی مانده."
-            )
+        if processed % batch_size == 0 or processed == 1 or processed == total:ts=0
+
+          #  bot.send_message(
+         #       chat_id,
+         #       f"چرخه {group}: {processed} از {total} نماد پردازش شد، {total - processed} #باقی مانده."
+        #    )
 
         ts = now_utc().strftime("%Y%m%d_%H%M%S")
         png = f"{group}_{sym}_{ts}.png"
