@@ -1045,9 +1045,9 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str, lookb
 
         if processed % batch_size == 0 or processed == 1 or processed == total:total=0
             #bot.send_message(
-                chat_id,
-                f"چرخه {group}: {processed} از {total} نماد پردازش شد، {total - processed} باقی مانده."
-            )
+               # chat_id,
+               # f"چرخه {group}: #{processed} از {total} نماد پردازش شد، #{total - processed} باقی مانده."
+          #  )
 
         ts = now_utc().strftime("%Y%m%d_%H%M%S")
         png = f"{group}_{sym}_{ts}.png"
