@@ -121,10 +121,10 @@ def now_utc_str():
 # توکن‌ها و ربات‌ها
 # =========================
 
-TOKEN_1H   = (os.getenv("TOKEN_1H") or "").strip()
+TOKEN_1H   = (os.getenv("TOKEN_1H")
 TOKEN_4H   = (os.getenv("TOKEN_4H") or "").strip()
 TOKEN_1D   = (os.getenv("TOKEN_1D") or "").strip()
-TOKEN_15M  = (os.getenv("TOKEN_15M") or "").strip()
+TOKEN_15M  = (os.getenv("TOKEN_15M")
 ADMIN_CHAT = (os.getenv("ADMIN_CHAT_ID") or "").strip()
 
 def create_bot(token: str):
