@@ -1,17 +1,5 @@
 # -*- coding: utf-8 -*-
-# Modu Bazler v4.3.1 – نسخه‌ی یک‌تکه، پایدار و بدون هنگ
-# ویژگی‌ها:
-# - ۴ ربات: 1h, 4h, 1d, 15m
-# - منوی مرکزی در ربات 1h
-# - دکمه «ریست برنامه»
-# - دکمه «اجرای چرخه‌ها» (اجرای فوری همه‌ی تایم‌فریم‌ها)
-# - کنترل verbose (ON/OFF) برای هر ربات:
-#     * ON → پیام‌های پردازش + نمودار همه‌ی نمادها
-#     * OFF → فقط نمودار نمادهای دارای آلارم، بدون پیام پردازش
-# - آلارم‌ها فقط روی نمادهایی که آلارم دارند
-# - اجرای فوری 1h / 4h / 1d / 15m
-# - PDF برای سیکل‌های 1h و 1d
-# - زمان‌بندی خودکار پایدار
+# Modu Bazler v5 – نسخه‌ی یک‌تکه، پایدار و حرفه‌ای
 
 import os, json, time, threading, datetime as dt
 import requests, numpy as np, pandas as pd
@@ -36,7 +24,7 @@ PDF_DIR    = os.path.join(DATA_DIR, "pdf")
 for d in [DATA_DIR, CHARTS_DIR, PDF_DIR]:
     os.makedirs(d, exist_ok=True)
 
-CONFIG_PATH = os.path.join(DATA_DIR, "config_v4_3_1.json")
+CONFIG_PATH = os.path.join(DATA_DIR, "config_v5.json")
 
 DEFAULT_CONFIG = {
     "symbols_1h": [
@@ -121,10 +109,10 @@ def now_utc_str():
 # توکن‌ها و ربات‌ها
 # =========================
 
-TOKEN_1H   = (os.getenv("TOKEN_1H")
+TOKEN_1H   = (os.getenv("TOKEN_1H") or "").strip()
 TOKEN_4H   = (os.getenv("TOKEN_4H") or "").strip()
 TOKEN_1D   = (os.getenv("TOKEN_1D") or "").strip()
-TOKEN_15M  = (os.getenv("TOKEN_15M")
+TOKEN_15M  = (os.getenv("TOKEN_15M") or "").strip()
 ADMIN_CHAT = (os.getenv("ADMIN_CHAT_ID") or "").strip()
 
 def create_bot(token: str):
@@ -150,11 +138,11 @@ LAST_ALARMS = {
 }
 
 # =========================
-# متن راهنما
+# راهنما
 # =========================
 
 HELP_TEXT = """
-Modu Bazler v4.3.1 – نسخه‌ی پایدار
+Modu Bazler v5 – نسخه‌ی پایدار
 
 منوی ربات 1h:
 - چک یک نماد
@@ -172,7 +160,7 @@ Modu Bazler v4.3.1 – نسخه‌ی پایدار
 """
 
 # =========================
-# منوی اصلی
+# منوی اصلی ربات 1h
 # =========================
 
 def send_main_menu(chat_id):
@@ -197,12 +185,37 @@ def start_main(m):
     send_main_menu(m.chat.id)
 
 @bot_1h.message_handler(commands=["refresh"])
+@bot_1h.message_handler(func=lambda m: m.text == "رفرش منو")
 def refresh_main(m):
     send_main_menu(m.chat.id)
 
-@bot_1h.message_handler(func=lambda m: m.text == "رفرش منو")
-def refresh_menu_btn(m):
-    send_main_menu(m.chat.id)
+# =========================
+# استارت سایر ربات‌ها (ثبت chat_id)
+# =========================
+
+if bot_4h:
+    @bot_4h.message_handler(commands=["start"])
+    def start_4h(m):
+        cfg = load_config()
+        cfg["chat_id_4h"] = m.chat.id
+        save_config(cfg)
+        bot_4h.send_message(m.chat.id, "ربات ۴ساعته فعال شد.\n" + now_utc_str())
+
+if bot_1d:
+    @bot_1d.message_handler(commands=["start"])
+    def start_1d(m):
+        cfg = load_config()
+        cfg["chat_id_1d"] = m.chat.id
+        save_config(cfg)
+        bot_1d.send_message(m.chat.id, "ربات روزانه فعال شد.\n" + now_utc_str())
+
+if bot_15m:
+    @bot_15m.message_handler(commands=["start"])
+    def start_15m(m):
+        cfg = load_config()
+        cfg["chat_id_15m"] = m.chat.id
+        save_config(cfg)
+        bot_15m.send_message(m.chat.id, "ربات ۱۵دقیقه‌ای فعال شد.\n" + now_utc_str())
 
 # =========================
 # ریست برنامه
@@ -409,7 +422,7 @@ def help_menu(m):
     bot_1h.send_message(m.chat.id, HELP_TEXT)
 
 # =========================
-# دیتا و اندیکاتورها و نمودار
+# دیتا، اندیکاتورها، نمودار
 # =========================
 
 def _binance_interval(i: str) -> str:
@@ -664,29 +677,30 @@ def manual_1h(m):
 @bot_1h.message_handler(func=lambda m: m.text == "اجرای فوری 4h")
 def manual_4h(m):
     cfg = load_config()
-    chat = cfg.get("chat_id_4h")
-    if bot_4h and chat:
+    chat = cfg.get("chat_id_4h") or m.chat.id
+    if bot_4h:
         run_cycle("4h", bot_4h, chat, cfg["symbols_4h"], "4h", cfg["lookback_4h"], cfg["max_bars"], False)
     else:
-        bot_1h.send_message(m.chat.id, "ربات 4h یا چت آن ثبت نشده است.")
+        bot_1h.send_message(m.chat.id, "توکن ربات 4h تنظیم نشده یا ربات ساخته نشده است.")
 
 @bot_1h.message_handler(func=lambda m: m.text == "اجرای فوری 1d")
 def manual_1d(m):
     cfg = load_config()
-    chat = cfg.get("chat_id_1d")
-    if bot_1d and chat:
+    chat = cfg.get("chat_id_1d") or m.chat.id
+    if bot_1d:
         run_cycle("1d", bot_1d, chat, cfg["symbols_1d"], "1d", cfg["lookback_1d"], cfg["max_bars"], cfg.get("make_pdf_1d", True))
     else:
-        bot_1h.send_message(m.chat.id, "ربات 1d یا چت آن ثبت نشده است.")
+        bot_1h.send_message(m.chat.id, "توکن ربات 1d تنظیم نشده یا ربات ساخته نشده است.")
 
 @bot_1h.message_handler(func=lambda m: m.text == "اجرای فوری 15m")
 def manual_15m(m):
     cfg = load_config()
-    chat = cfg.get("chat_id_15m")
-    if bot_15m and chat:
+    chat = cfg.get("chat_id_15m") or m.chat.id
+    if bot_15m:
         run_cycle("15m", bot_15m, chat, cfg["symbols_15m"], "15m", cfg["lookback_15m"], cfg["max_bars"], False)
+        bot_1h.send_message(m.chat.id, "اجرای فوری چرخه 15m شروع شد.")
     else:
-        bot_1h.send_message(m.chat.id, "ربات 15m یا چت آن ثبت نشده است.")
+        bot_1h.send_message(m.chat.id, "توکن ربات 15m تنظیم نشده یا ربات ساخته نشده است.")
 
 # =========================
 # دکمه اجرای چرخه‌ها (همه‌ی تایم‌فریم‌ها)
@@ -741,7 +755,7 @@ def scheduler_loop():
 if __name__ == "__main__":
     if ADMIN_CHAT and bot_1h:
         try:
-            bot_1h.send_message(ADMIN_CHAT, "Modu Bazler v4.3.1 – ربات اصلی راه‌اندازی شد.")
+            bot_1h.send_message(ADMIN_CHAT, "Modu Bazler v5 – ربات اصلی راه‌اندازی شد.")
         except:
             pass
     if bot_1h:
