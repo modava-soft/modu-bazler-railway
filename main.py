@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Modu Bazler v5 – نسخه‌ی یک‌تکه، پایدار و حرفه‌ای
+# Modu Bazler v5.1 – نسخه‌ی پایدار با زمان‌بندی و قفل سیکل‌ها
 
 import os, json, time, threading, datetime as dt
 import requests, numpy as np, pandas as pd
@@ -24,7 +24,7 @@ PDF_DIR    = os.path.join(DATA_DIR, "pdf")
 for d in [DATA_DIR, CHARTS_DIR, PDF_DIR]:
     os.makedirs(d, exist_ok=True)
 
-CONFIG_PATH = os.path.join(DATA_DIR, "config_v5.json")
+CONFIG_PATH = os.path.join(DATA_DIR, "config_v5_1.json")
 
 DEFAULT_CONFIG = {
     "symbols_1h": [
@@ -137,26 +137,54 @@ LAST_ALARMS = {
     "15m": []
 }
 
+# قفل‌ها برای جلوگیری از اجرای هم‌زمان سیکل‌ها
+CYCLE_LOCKS = {
+    "1h": threading.Lock(),
+    "4h": threading.Lock(),
+    "1d": threading.Lock(),
+    "15m": threading.Lock()
+}
+
 # =========================
 # راهنما
 # =========================
 
 HELP_TEXT = """
-Modu Bazler v5 – نسخه‌ی پایدار
+Modu Bazler v5.1 – نسخه‌ی پایدار
 
-منوی ربات 1h:
-- چک یک نماد
-- اجرای دستی 1h
-- اجرای فوری 4h
-- اجرای فوری 1d
-- اجرای فوری 15m
-- مدیریت نمادهای 1h / 4h / 1d / 15m
-- تنظیم آلارم‌ها
-- گزارش آلارم‌ها
-- وضعیت سیستم
-- تنظیمات پیشرفته
-- اجرای چرخه‌ها (همه‌ی تایم‌فریم‌ها)
-- ریست برنامه
+📌 ربات‌ها:
+- 1h: ربات اصلی مدیریت و منو
+- 4h: ربات ۴ساعته
+- 1d: ربات روزانه
+- 15m: ربات ۱۵دقیقه‌ای
+
+✅ ثبت چت هر ربات:
+- در هر ربات دستور /start را بفرست تا chat_id ثبت شود.
+
+🧭 منوی ربات 1h:
+- چک یک نماد → بررسی پیشرفته یک نماد در 1h
+- اجرای دستی 1h → اجرای کامل سیکل 1h (با PDF در صورت فعال بودن)
+- اجرای فوری 4h / 1d / 15m → اجرای سیکل همان تایم‌فریم
+- مدیریت نمادهای 1h / 4h / 1d / 15m → افزودن/حذف نمادها
+- تنظیم آلارم‌ها → فعال/غیرفعال کردن انواع آلارم‌ها
+- گزارش آلارم‌ها → نمایش آخرین آلارم‌های هر گروه
+- وضعیت سیستم → نمایش تنظیمات و تعداد نمادها
+- تنظیمات پیشرفته → کنترل PDF و verbose برای هر ربات
+- اجرای چرخه‌ها → اجرای فوری همه‌ی تایم‌فریم‌ها
+- ریست برنامه → بازگشت به تنظیمات اولیه
+
+🔊 حالت پردازش (verbose):
+- ON → پیام‌های پردازش + نمودار همه‌ی نمادها
+- OFF → فقط نمودار نمادهای دارای آلارم، بدون پیام‌های میانی
+
+📄 PDF:
+- برای سیکل‌های 1h و 1d در صورت فعال بودن، یک فایل PDF از همه‌ی نمودارها ساخته و ارسال می‌شود.
+
+⏱ زمان‌بندی خودکار:
+- 1h: هر ساعت در دقیقه 22
+- 4h: در ساعات 2، 6، 10، 14، 18، 22 (دقیقه 7)
+- 1d: هر روز ساعت 1:05
+- 15m: هر ۱۵ دقیقه
 """
 
 # =========================
@@ -588,62 +616,71 @@ def detect_alarms(cfg: dict, info: dict, group: str):
     return alarms
 
 # =========================
-# اجرای سیکل‌ها (verbose ON/OFF)
+# اجرای سیکل‌ها با قفل (verbose ON/OFF)
 # =========================
 
 def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str, lookback_days: int, max_bars: int, make_pdf: bool):
-    cfg = load_config()
-    verbose = cfg.get(f"verbose_{group}", True)
-    if chat_id is None:
+    lock = CYCLE_LOCKS.get(group)
+    if lock is None:
         return
-    if verbose:
-        bot.send_message(chat_id, f"شروع چرخه {group}\n{now_utc_str()} UTC")
-    unique_symbols = list(dict.fromkeys(symbols))
-    total = len(unique_symbols)
-    processed = 0
-    batch_size = cfg.get("cycle_progress_batch", 5)
-    pdf = None
-    pdf_filename = None
-    if make_pdf and group in ["1h","1d"]:
-        pdf_filename = os.path.join(PDF_DIR, f"{group}_{now_utc().strftime('%Y%m%d_%H%M%S')}.pdf")
-        pdf = PdfPages(pdf_filename)
-    for sym in unique_symbols:
-        processed += 1
-        if verbose and (processed % batch_size == 0 or processed == 1 or processed == total):
-            bot.send_message(chat_id, f"چرخه {group}: {processed}/{total} نماد، {total - processed} باقی مانده.")
-        ts = now_utc().strftime("%Y%m%d_%H%M%S")
-        png = f"{group}_{sym}_{ts}.png"
-        info = create_plotly_chart(sym, interval, lookback_days, max_bars, png)
-        alarms = detect_alarms(cfg, info, group)
-        if verbose or alarms:
-            caption = f"{sym} ({group})"
-            if alarms:
-                caption += "\n" + "\n".join(alarms)
-            else:
-                caption += " – بدون آلارم"
-            try:
-                with open(info["png_path"], "rb") as f:
-                    bot.send_photo(chat_id, f, caption=caption)
-            except:
-                pass
+    if not lock.acquire(blocking=False):
+        # اگر سیکل قبلی هنوز در حال اجراست، سیکل جدید را نادیده بگیر
+        return
+    try:
+        cfg = load_config()
+        verbose = cfg.get(f"verbose_{group}", True)
+        if chat_id is None:
+            return
+        if verbose:
+            bot.send_message(chat_id, f"شروع چرخه {group}\n{now_utc_str()} UTC")
+        unique_symbols = list(dict.fromkeys(symbols))
+        total = len(unique_symbols)
+        processed = 0
+        batch_size = cfg.get("cycle_progress_batch", 5)
+        pdf = None
+        pdf_filename = None
+        if make_pdf and group in ["1h","1d"]:
+            pdf_filename = os.path.join(PDF_DIR, f"{group}_{now_utc().strftime('%Y%m%d_%H%M%S')}.pdf")
+            pdf = PdfPages(pdf_filename)
+        for sym in unique_symbols:
+            processed += 1
+            if verbose and (processed % batch_size == 0 or processed == 1 or processed == total):
+                bot.send_message(chat_id, f"چرخه {group}: {processed}/{total} نماد، {total - processed} باقی مانده.")
+            ts = now_utc().strftime("%Y%m%d_%H%M%S")
+            png = f"{group}_{sym}_{ts}.png"
+            info = create_plotly_chart(sym, interval, lookback_days, max_bars, png)
+            alarms = detect_alarms(cfg, info, group)
+            if verbose or alarms:
+                caption = f"{sym} ({group})"
+                if alarms:
+                    caption += "\n" + "\n".join(alarms)
+                else:
+                    caption += " – بدون آلارم"
+                try:
+                    with open(info["png_path"], "rb") as f:
+                        bot.send_photo(chat_id, f, caption=caption)
+                except:
+                    pass
+            if pdf is not None:
+                try:
+                    img = plt.imread(info["png_path"])
+                    fig, ax = plt.subplots(figsize=(10,6))
+                    ax.imshow(img); ax.axis("off"); ax.set_title(f"{sym} – {group}")
+                    pdf.savefig(fig); plt.close(fig)
+                except:
+                    pass
+            time.sleep(0.3)
         if pdf is not None:
             try:
-                img = plt.imread(info["png_path"])
-                fig, ax = plt.subplots(figsize=(10,6))
-                ax.imshow(img); ax.axis("off"); ax.set_title(f"{sym} – {group}")
-                pdf.savefig(fig); plt.close(fig)
+                pdf.close()
+                with open(pdf_filename, "rb") as f:
+                    bot.send_document(chat_id, f, caption=f"گزارش PDF کامل سیکل {group}")
             except:
                 pass
-        time.sleep(0.5)
-    if pdf is not None:
-        try:
-            pdf.close()
-            with open(pdf_filename, "rb") as f:
-                bot.send_document(chat_id, f, caption=f"گزارش PDF کامل سیکل {group}")
-        except:
-            pass
-    if verbose:
-        bot.send_message(chat_id, f"پایان چرخه {group}")
+        if verbose:
+            bot.send_message(chat_id, f"پایان چرخه {group}")
+    finally:
+        lock.release()
 
 # =========================
 # تک نماد و اجراهای فوری
@@ -672,14 +709,22 @@ def process_single_symbol(m):
 def manual_1h(m):
     cfg = load_config()
     chat = cfg.get("chat_id_1h") or m.chat.id
-    run_cycle("1h", bot_1h, chat, cfg["symbols_1h"], "1h", cfg["lookback_1h"], cfg["max_bars"], cfg.get("make_pdf_1h", True))
+    threading.Thread(
+        target=run_cycle,
+        args=("1h", bot_1h, chat, cfg["symbols_1h"], "1h", cfg["lookback_1h"], cfg["max_bars"], cfg.get("make_pdf_1h", True)),
+        daemon=True
+    ).start()
 
 @bot_1h.message_handler(func=lambda m: m.text == "اجرای فوری 4h")
 def manual_4h(m):
     cfg = load_config()
     chat = cfg.get("chat_id_4h") or m.chat.id
     if bot_4h:
-        run_cycle("4h", bot_4h, chat, cfg["symbols_4h"], "4h", cfg["lookback_4h"], cfg["max_bars"], False)
+        threading.Thread(
+            target=run_cycle,
+            args=("4h", bot_4h, chat, cfg["symbols_4h"], "4h", cfg["lookback_4h"], cfg["max_bars"], False),
+            daemon=True
+        ).start()
     else:
         bot_1h.send_message(m.chat.id, "توکن ربات 4h تنظیم نشده یا ربات ساخته نشده است.")
 
@@ -688,7 +733,11 @@ def manual_1d(m):
     cfg = load_config()
     chat = cfg.get("chat_id_1d") or m.chat.id
     if bot_1d:
-        run_cycle("1d", bot_1d, chat, cfg["symbols_1d"], "1d", cfg["lookback_1d"], cfg["max_bars"], cfg.get("make_pdf_1d", True))
+        threading.Thread(
+            target=run_cycle,
+            args=("1d", bot_1d, chat, cfg["symbols_1d"], "1d", cfg["lookback_1d"], cfg["max_bars"], cfg.get("make_pdf_1d", True)),
+            daemon=True
+        ).start()
     else:
         bot_1h.send_message(m.chat.id, "توکن ربات 1d تنظیم نشده یا ربات ساخته نشده است.")
 
@@ -697,7 +746,11 @@ def manual_15m(m):
     cfg = load_config()
     chat = cfg.get("chat_id_15m") or m.chat.id
     if bot_15m:
-        run_cycle("15m", bot_15m, chat, cfg["symbols_15m"], "15m", cfg["lookback_15m"], cfg["max_bars"], False)
+        threading.Thread(
+            target=run_cycle,
+            args=("15m", bot_15m, chat, cfg["symbols_15m"], "15m", cfg["lookback_15m"], cfg["max_bars"], False),
+            daemon=True
+        ).start()
         bot_1h.send_message(m.chat.id, "اجرای فوری چرخه 15m شروع شد.")
     else:
         bot_1h.send_message(m.chat.id, "توکن ربات 15m تنظیم نشده یا ربات ساخته نشده است.")
@@ -720,31 +773,72 @@ def run_all_cycles(m):
     bot_1h.send_message(m.chat.id, "اجرای چرخه‌ها برای همه‌ی تایم‌فریم‌ها شروع شد.")
 
 # =========================
-# زمان‌بندی خودکار
+# زمان‌بندی خودکار پایدار
 # =========================
 
 def scheduler_loop():
+    last_run = {
+        "1h": None,
+        "4h": None,
+        "1d": None,
+        "15m": None
+    }
     while True:
         try:
             cfg = load_config()
             now = now_utc()
-            if now.minute == 22 and now.second < 5:
+            minute = now.minute
+            second = now.second
+            hour   = now.hour
+
+            # پنجره‌ی ۲۰ ثانیه‌ای برای هر تریگر تا از دست نرود
+            def should_run(key, window_sec=20):
+                lr = last_run[key]
+                if lr is None:
+                    return True
+                return (now - lr).total_seconds() > window_sec
+
+            # 1h – هر ساعت در دقیقه 22
+            if minute == 22 and second < 20 and should_run("1h"):
                 if bot_1h and cfg.get("chat_id_1h"):
-                    threading.Thread(target=run_cycle, args=("1h", bot_1h, cfg["chat_id_1h"], cfg["symbols_1h"], "1h", cfg["lookback_1h"], cfg["max_bars"], cfg.get("make_pdf_1h", True)), daemon=True).start()
-                time.sleep(10)
-            if now.minute == 7 and now.second < 5 and now.hour in [2,6,10,14,18,22]:
+                    threading.Thread(
+                        target=run_cycle,
+                        args=("1h", bot_1h, cfg["chat_id_1h"], cfg["symbols_1h"], "1h", cfg["lookback_1h"], cfg["max_bars"], cfg.get("make_pdf_1h", True)),
+                        daemon=True
+                    ).start()
+                    last_run["1h"] = now
+
+            # 4h – در ساعات 2، 6، 10، 14، 18، 22 (دقیقه 7)
+            if minute == 7 and second < 20 and hour in [2,6,10,14,18,22] and should_run("4h"):
                 if bot_4h and cfg.get("chat_id_4h"):
-                    threading.Thread(target=run_cycle, args=("4h", bot_4h, cfg["chat_id_4h"], cfg["symbols_4h"], "4h", cfg["lookback_4h"], cfg["max_bars"], False), daemon=True).start()
-                time.sleep(10)
-            if now.hour == 1 and now.minute == 5 and now.second < 5:
+                    threading.Thread(
+                        target=run_cycle,
+                        args=("4h", bot_4h, cfg["chat_id_4h"], cfg["symbols_4h"], "4h", cfg["lookback_4h"], cfg["max_bars"], False),
+                        daemon=True
+                    ).start()
+                    last_run["4h"] = now
+
+            # 1d – هر روز ساعت 1:05
+            if hour == 1 and minute == 5 and second < 20 and should_run("1d", window_sec=3600):
                 if bot_1d and cfg.get("chat_id_1d"):
-                    threading.Thread(target=run_cycle, args=("1d", bot_1d, cfg["chat_id_1d"], cfg["symbols_1d"], "1d", cfg["lookback_1d"], cfg["max_bars"], cfg.get("make_pdf_1d", True)), daemon=True).start()
-                time.sleep(10)
-            if now.minute % 15 == 0 and now.second < 5:
+                    threading.Thread(
+                        target=run_cycle,
+                        args=("1d", bot_1d, cfg["chat_id_1d"], cfg["symbols_1d"], "1d", cfg["lookback_1d"], cfg["max_bars"], cfg.get("make_pdf_1d", True)),
+                        daemon=True
+                    ).start()
+                    last_run["1d"] = now
+
+            # 15m – هر ۱۵ دقیقه
+            if minute % 15 == 0 and second < 20 and should_run("15m"):
                 if bot_15m and cfg.get("chat_id_15m"):
-                    threading.Thread(target=run_cycle, args=("15m", bot_15m, cfg["chat_id_15m"], cfg["symbols_15m"], "15m", cfg["lookback_15m"], cfg["max_bars"], False), daemon=True).start()
-                time.sleep(10)
-            time.sleep(3)
+                    threading.Thread(
+                        target=run_cycle,
+                        args=("15m", bot_15m, cfg["chat_id_15m"], cfg["symbols_15m"], "15m", cfg["lookback_15m"], cfg["max_bars"], False),
+                        daemon=True
+                    ).start()
+                    last_run["15m"] = now
+
+            time.sleep(5)
         except:
             time.sleep(10)
 
@@ -755,7 +849,7 @@ def scheduler_loop():
 if __name__ == "__main__":
     if ADMIN_CHAT and bot_1h:
         try:
-            bot_1h.send_message(ADMIN_CHAT, "Modu Bazler v5 – ربات اصلی راه‌اندازی شد.")
+            bot_1h.send_message(ADMIN_CHAT, "Modu Bazler v5.1 – ربات اصلی راه‌اندازی شد.")
         except:
             pass
     if bot_1h:
