@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Modu Bazler v6 – نسخه‌ی حرفه‌ای با:
+# Modu Bazler v6 – نسخه‌ی حرفه‌ای اصلاح‌شده
 # - اجرای پایدار سیکل‌ها بدون تداخل (Lock برای هر گروه)
 # - زمان‌بندی خودکار پایدار برای 1h / 4h / 1d / 15m
 # - حالت پردازش ON/OFF (verbose) برای هر ربات
@@ -9,6 +9,7 @@
 #   اگر ۵۰ نماد باشد → ۵ عکس تجمیعی (هرکدام تا ۱۲ نمودار) ارسال می‌شود
 # - مدیریت نمادها برای هر گروه (1h / 4h / 1d / 15m)
 # - ریست کامل برنامه و تنظیمات
+# - اصلاح دکمه‌ی «بازگشت به منوی اصلی» در منوی مدیریت نمادها
 
 import os
 import json
@@ -152,7 +153,6 @@ LAST_ALARMS = {
     "15m": []
 }
 
-# قفل‌ها برای جلوگیری از اجرای هم‌زمان سیکل‌ها
 CYCLE_LOCKS = {
     "1h": threading.Lock(),
     "4h": threading.Lock(),
@@ -310,6 +310,11 @@ def manage_1d(m): show_symbol_menu(m.chat.id, "1d")
 
 @bot_1h.message_handler(func=lambda m: m.text == "مدیریت نمادهای 15m")
 def manage_15m(m): show_symbol_menu(m.chat.id, "15m")
+
+# 🔹 هندلر بازگشت به منوی اصلی از منوی مدیریت نمادها
+@bot_1h.message_handler(func=lambda m: m.text == "بازگشت به منوی اصلی")
+def back_to_main(m):
+    send_main_menu(m.chat.id)
 
 def add_symbol_step(m, group):
     symbol = m.text.strip().upper()
@@ -654,7 +659,6 @@ def make_combined_image_pages(group: str, items: list, base_name: str):
     rows, cols = 3, 4
     per_page = rows * cols
 
-    # تقسیم به صفحات ۱۲تایی
     for page_idx in range(0, len(items), per_page):
         chunk = items[page_idx:page_idx + per_page]
         fig, axes = plt.subplots(rows, cols, figsize=(cols * 4, rows * 3))
@@ -676,7 +680,6 @@ def make_combined_image_pages(group: str, items: list, base_name: str):
                 ax.axis("off")
                 ax.set_title(f"{item['symbol']} (خطا در بارگذاری)", fontsize=8)
 
-        # سلول‌های خالی را خاموش کن
         for j in range(len(chunk), rows * cols):
             axes[j].axis("off")
 
@@ -700,7 +703,6 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str, lookb
     if lock is None:
         return
     if not lock.acquire(blocking=False):
-        # اگر سیکل قبلی هنوز در حال اجراست، سیکل جدید را نادیده بگیر
         return
 
     try:
@@ -723,7 +725,6 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str, lookb
             pdf_filename = os.path.join(PDF_DIR, f"{group}_{now_utc().strftime('%Y%m%d_%H%M%S')}.pdf")
             pdf = PdfPages(pdf_filename)
 
-        # لیست برای عکس‌های تجمیعی
         combined_items = []
 
         for sym in unique_symbols:
@@ -743,9 +744,6 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str, lookb
                 "alarms": alarms
             })
 
-            # منطق ارسال عکس تکی:
-            # - اگر verbose ON → همه نمودارها
-            # - اگر verbose OFF → فقط نمودارهای دارای آلارم
             if verbose or alarms:
                 caption = f"{sym} ({group})"
                 if alarms:
@@ -758,7 +756,6 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str, lookb
                 except:
                     pass
 
-            # اضافه به PDF در صورت نیاز
             if pdf is not None:
                 try:
                     img = plt.imread(info["png_path"])
@@ -770,7 +767,6 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str, lookb
 
             time.sleep(0.3)
 
-        # بستن PDF و ارسال
         if pdf is not None:
             try:
                 pdf.close()
@@ -779,13 +775,15 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str, lookb
             except:
                 pass
 
-        # ساخت عکس‌های تجمیعی چند صفحه‌ای و ارسال به همان ربات
         try:
             base_name = f"combined_{group}_{now_utc().strftime('%Y%m%d_%H%M%S')}"
             pages_paths = make_combined_image_pages(group, combined_items, base_name)
             for idx, p in enumerate(pages_paths, start=1):
-                with open(p, "rb") as f:
-                    bot.send_photo(chat_id, f, caption=f"گزارش تجمیعی {group} – صفحه {idx}")
+                try:
+                    with open(p, "rb") as f:
+                        bot.send_photo(chat_id, f, caption=f"گزارش تجمیعی {group} – صفحه {idx}")
+                except:
+                    pass
         except:
             pass
 
@@ -868,10 +866,6 @@ def manual_15m(m):
     else:
         bot_1h.send_message(m.chat.id, "توکن ربات 15m تنظیم نشده یا ربات ساخته نشده است.")
 
-# =========================
-# دکمه اجرای چرخه‌ها (همه‌ی تایم‌فریم‌ها)
-# =========================
-
 @bot_1h.message_handler(func=lambda m: m.text == "اجرای چرخه‌ها")
 def run_all_cycles(m):
     cfg = load_config()
@@ -910,7 +904,6 @@ def scheduler_loop():
                     return True
                 return (now - lr).total_seconds() > window_sec
 
-            # 1h – هر ساعت در دقیقه 22
             if minute == 22 and second < 20 and should_run("1h"):
                 if bot_1h and cfg.get("chat_id_1h"):
                     threading.Thread(
@@ -920,7 +913,6 @@ def scheduler_loop():
                     ).start()
                     last_run["1h"] = now
 
-            # 4h – در ساعات 2، 6، 10، 14، 18، 22 (دقیقه 7)
             if minute == 7 and second < 20 and hour in [2,6,10,14,18,22] and should_run("4h"):
                 if bot_4h and cfg.get("chat_id_4h"):
                     threading.Thread(
@@ -930,7 +922,6 @@ def scheduler_loop():
                     ).start()
                     last_run["4h"] = now
 
-            # 1d – هر روز ساعت 1:05
             if hour == 1 and minute == 5 and second < 20 and should_run("1d", window_sec=3600):
                 if bot_1d and cfg.get("chat_id_1d"):
                     threading.Thread(
@@ -940,7 +931,6 @@ def scheduler_loop():
                     ).start()
                     last_run["1d"] = now
 
-            # 15m – هر ۱۵ دقیقه
             if minute % 15 == 0 and second < 20 and should_run("15m"):
                 if bot_15m and cfg.get("chat_id_15m"):
                     threading.Thread(
