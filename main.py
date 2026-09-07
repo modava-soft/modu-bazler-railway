@@ -1,8 +1,23 @@
 # -*- coding: utf-8 -*-
-# Modu Bazler v5.1 – نسخه‌ی پایدار با زمان‌بندی و قفل سیکل‌ها
+# Modu Bazler v6 – نسخه‌ی حرفه‌ای با:
+# - اجرای پایدار سیکل‌ها بدون تداخل (Lock برای هر گروه)
+# - زمان‌بندی خودکار پایدار برای 1h / 4h / 1d / 15m
+# - حالت پردازش ON/OFF (verbose) برای هر ربات
+# - آلارم‌ها روی WMA و SMAها
+# - ساخت PDF برای 1h و 1d
+# - ساخت عکس‌های تجمیعی ۱۲ نموداری (چند صفحه‌ای) برای همه نمادهای هر سیکل
+#   اگر ۵۰ نماد باشد → ۵ عکس تجمیعی (هرکدام تا ۱۲ نمودار) ارسال می‌شود
+# - مدیریت نمادها برای هر گروه (1h / 4h / 1d / 15m)
+# - ریست کامل برنامه و تنظیمات
 
-import os, json, time, threading, datetime as dt
-import requests, numpy as np, pandas as pd
+import os
+import json
+import time
+import threading
+import datetime as dt
+import requests
+import numpy as np
+import pandas as pd
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -24,7 +39,7 @@ PDF_DIR    = os.path.join(DATA_DIR, "pdf")
 for d in [DATA_DIR, CHARTS_DIR, PDF_DIR]:
     os.makedirs(d, exist_ok=True)
 
-CONFIG_PATH = os.path.join(DATA_DIR, "config_v5_1.json")
+CONFIG_PATH = os.path.join(DATA_DIR, "config_v6.json")
 
 DEFAULT_CONFIG = {
     "symbols_1h": [
@@ -150,7 +165,7 @@ CYCLE_LOCKS = {
 # =========================
 
 HELP_TEXT = """
-Modu Bazler v5.1 – نسخه‌ی پایدار
+Modu Bazler v6 – نسخه‌ی حرفه‌ای
 
 📌 ربات‌ها:
 - 1h: ربات اصلی مدیریت و منو
@@ -179,6 +194,11 @@ Modu Bazler v5.1 – نسخه‌ی پایدار
 
 📄 PDF:
 - برای سیکل‌های 1h و 1d در صورت فعال بودن، یک فایل PDF از همه‌ی نمودارها ساخته و ارسال می‌شود.
+
+🖼 عکس‌های تجمیعی:
+- در پایان هر سیکل، عکس‌های تجمیعی ۱۲ نموداری ساخته می‌شود.
+- اگر ۵۰ نماد باشد → ۵ عکس تجمیعی (هرکدام تا ۱۲ نمودار) ارسال می‌شود.
+- زیر هر نمودار، نوع آلارم‌های آن نماد نوشته می‌شود (اگر آلارم داشته باشد).
 
 ⏱ زمان‌بندی خودکار:
 - 1h: هر ساعت در دقیقه 22
@@ -616,7 +636,63 @@ def detect_alarms(cfg: dict, info: dict, group: str):
     return alarms
 
 # =========================
-# اجرای سیکل‌ها با قفل (verbose ON/OFF)
+# ساخت عکس تجمیعی چند صفحه‌ای (۱۲ نمودار در هر عکس)
+# =========================
+
+def make_combined_image_pages(group: str, items: list, base_name: str):
+    """
+    items: لیستی از دیکشنری‌ها با کلیدهای:
+      - png_path: مسیر عکس نمودار
+      - symbol: نماد
+      - alarms: لیست رشته‌ها (آلارم‌ها)
+    خروجی: لیست مسیر عکس‌های تجمیعی ساخته شده
+    """
+    if not items:
+        return []
+
+    pages_paths = []
+    rows, cols = 3, 4
+    per_page = rows * cols
+
+    # تقسیم به صفحات ۱۲تایی
+    for page_idx in range(0, len(items), per_page):
+        chunk = items[page_idx:page_idx + per_page]
+        fig, axes = plt.subplots(rows, cols, figsize=(cols * 4, rows * 3))
+        axes = axes.flatten()
+
+        for idx, item in enumerate(chunk):
+            ax = axes[idx]
+            try:
+                img = plt.imread(item["png_path"])
+                ax.imshow(img)
+                ax.axis("off")
+                title = item["symbol"]
+                if item.get("alarms"):
+                    alarm_text = " | ".join(item["alarms"])
+                    ax.set_title(f"{title}\n{alarm_text}", fontsize=8)
+                else:
+                    ax.set_title(title, fontsize=8)
+            except:
+                ax.axis("off")
+                ax.set_title(f"{item['symbol']} (خطا در بارگذاری)", fontsize=8)
+
+        # سلول‌های خالی را خاموش کن
+        for j in range(len(chunk), rows * cols):
+            axes[j].axis("off")
+
+        fig.suptitle(f"گزارش تجمیعی {group} – صفحه {page_idx // per_page + 1} – {now_utc_str()}", fontsize=12)
+        fig.tight_layout(rect=[0, 0, 1, 0.95])
+
+        out_name = f"{base_name}_p{page_idx // per_page + 1}.png"
+        out_path = os.path.join(CHARTS_DIR, out_name)
+        fig.savefig(out_path, dpi=200)
+        plt.close(fig)
+        pages_paths.append(out_path)
+
+    return pages_paths
+
+# =========================
+# اجرای سیکل‌ها با قفل، PDF و عکس‌های تجمیعی چند صفحه‌ای
 # =========================
 
 def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str, lookback_days: int, max_bars: int, make_pdf: bool):
@@ -626,30 +702,50 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str, lookb
     if not lock.acquire(blocking=False):
         # اگر سیکل قبلی هنوز در حال اجراست، سیکل جدید را نادیده بگیر
         return
+
     try:
         cfg = load_config()
         verbose = cfg.get(f"verbose_{group}", True)
         if chat_id is None:
             return
+
         if verbose:
             bot.send_message(chat_id, f"شروع چرخه {group}\n{now_utc_str()} UTC")
+
         unique_symbols = list(dict.fromkeys(symbols))
         total = len(unique_symbols)
         processed = 0
         batch_size = cfg.get("cycle_progress_batch", 5)
+
         pdf = None
         pdf_filename = None
         if make_pdf and group in ["1h","1d"]:
             pdf_filename = os.path.join(PDF_DIR, f"{group}_{now_utc().strftime('%Y%m%d_%H%M%S')}.pdf")
             pdf = PdfPages(pdf_filename)
+
+        # لیست برای عکس‌های تجمیعی
+        combined_items = []
+
         for sym in unique_symbols:
             processed += 1
+
             if verbose and (processed % batch_size == 0 or processed == 1 or processed == total):
                 bot.send_message(chat_id, f"چرخه {group}: {processed}/{total} نماد، {total - processed} باقی مانده.")
+
             ts = now_utc().strftime("%Y%m%d_%H%M%S")
             png = f"{group}_{sym}_{ts}.png"
             info = create_plotly_chart(sym, interval, lookback_days, max_bars, png)
             alarms = detect_alarms(cfg, info, group)
+
+            combined_items.append({
+                "png_path": info["png_path"],
+                "symbol": info["symbol"],
+                "alarms": alarms
+            })
+
+            # منطق ارسال عکس تکی:
+            # - اگر verbose ON → همه نمودارها
+            # - اگر verbose OFF → فقط نمودارهای دارای آلارم
             if verbose or alarms:
                 caption = f"{sym} ({group})"
                 if alarms:
@@ -661,6 +757,8 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str, lookb
                         bot.send_photo(chat_id, f, caption=caption)
                 except:
                     pass
+
+            # اضافه به PDF در صورت نیاز
             if pdf is not None:
                 try:
                     img = plt.imread(info["png_path"])
@@ -669,7 +767,10 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str, lookb
                     pdf.savefig(fig); plt.close(fig)
                 except:
                     pass
+
             time.sleep(0.3)
+
+        # بستن PDF و ارسال
         if pdf is not None:
             try:
                 pdf.close()
@@ -677,8 +778,20 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str, lookb
                     bot.send_document(chat_id, f, caption=f"گزارش PDF کامل سیکل {group}")
             except:
                 pass
+
+        # ساخت عکس‌های تجمیعی چند صفحه‌ای و ارسال به همان ربات
+        try:
+            base_name = f"combined_{group}_{now_utc().strftime('%Y%m%d_%H%M%S')}"
+            pages_paths = make_combined_image_pages(group, combined_items, base_name)
+            for idx, p in enumerate(pages_paths, start=1):
+                with open(p, "rb") as f:
+                    bot.send_photo(chat_id, f, caption=f"گزارش تجمیعی {group} – صفحه {idx}")
+        except:
+            pass
+
         if verbose:
             bot.send_message(chat_id, f"پایان چرخه {group}")
+
     finally:
         lock.release()
 
@@ -791,7 +904,6 @@ def scheduler_loop():
             second = now.second
             hour   = now.hour
 
-            # پنجره‌ی ۲۰ ثانیه‌ای برای هر تریگر تا از دست نرود
             def should_run(key, window_sec=20):
                 lr = last_run[key]
                 if lr is None:
@@ -849,9 +961,10 @@ def scheduler_loop():
 if __name__ == "__main__":
     if ADMIN_CHAT and bot_1h:
         try:
-            bot_1h.send_message(ADMIN_CHAT, "Modu Bazler v5.1 – ربات اصلی راه‌اندازی شد.")
+            bot_1h.send_message(ADMIN_CHAT, "Modu Bazler v6 – ربات اصلی راه‌اندازی شد.")
         except:
             pass
+
     if bot_1h:
         threading.Thread(target=bot_1h.infinity_polling, daemon=True).start()
     if bot_4h:
@@ -860,6 +973,8 @@ if __name__ == "__main__":
         threading.Thread(target=bot_1d.infinity_polling, daemon=True).start()
     if bot_15m:
         threading.Thread(target=bot_15m.infinity_polling, daemon=True).start()
+
     threading.Thread(target=scheduler_loop, daemon=True).start()
+
     while True:
         time.sleep(60)
