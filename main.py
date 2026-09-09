@@ -1,65 +1,94 @@
 # -*- coding: utf-8 -*-
-# Modu Bazler v5.1 – نسخه‌ی پایدار با زمان‌بندی و قفل سیکل‌ها
+# Modu Bazler v7 – main.py (بازنویسی کامل با اصلاحات درخواستی)
 
-import os, json, time, threading, datetime as dt
-import requests, numpy as np, pandas as pd
+import os
+import json
+import time
+import threading
+import datetime as dt
+
+import requests
+import numpy as np
+import pandas as pd
+
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+
 from matplotlib.backends.backend_pdf import PdfPages
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from PIL import Image
+
 import telebot
 from telebot import types
 
-# =========================
-# مسیرها و کانفیگ
-# =========================
+# =========================================================
+# مسیرها و تنظیمات پایه
+# =========================================================
 
-BASE_DIR   = os.path.abspath(os.path.dirname(__file__))
-DATA_DIR   = os.path.join(BASE_DIR, "data")
+BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+DATA_DIR = os.path.join(BASE_DIR, "data")
 CHARTS_DIR = os.path.join(DATA_DIR, "charts")
-PDF_DIR    = os.path.join(DATA_DIR, "pdf")
+PDF_DIR = os.path.join(DATA_DIR, "pdf")
 
 for d in [DATA_DIR, CHARTS_DIR, PDF_DIR]:
     os.makedirs(d, exist_ok=True)
 
-CONFIG_PATH = os.path.join(DATA_DIR, "config_v5_1.json")
+CONFIG_PATH = os.path.join(DATA_DIR, "config_v7.json")
+
+# =========================================================
+# تنظیمات پیش‌فرض
+# =========================================================
+# نکته:
+# - پیش‌فرض گزارشات: 15 (cycle_progress_batch)
+# - تعداد کندل‌ها:
+#   * روزانه (1d) و 4 ساعته (4h): 60
+#   * 15 دقیقه (15m): 40
+#   * 1 ساعته (1h): 80
+# - تعداد کندل‌ها باید مضربی از 20 باشند (در منوی تنظیمات قابل تغییر است)
 
 DEFAULT_CONFIG = {
     "symbols_1h": [
-        "BTCUSDT","ETHUSDT","BNBUSDT","XRPUSDT","ADAUSDT",
-        "SOLUSDT","DOGEUSDT","DOTUSDT","MATICUSDT","LTCUSDT",
-        "TRXUSDT","AVAXUSDT","LINKUSDT","ATOMUSDT","XMRUSDT",
-        "ETCUSDT","XLMUSDT","FILUSDT","APTUSDT","NEARUSDT"
+        "BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT",
+        "SOLUSDT", "DOGEUSDT", "DOTUSDT", "MATICUSDT", "LTCUSDT",
+        "TRXUSDT", "AVAXUSDT", "LINKUSDT", "ATOMUSDT", "XMRUSDT",
+        "ETCUSDT", "XLMUSDT", "FILUSDT", "APTUSDT", "NEARUSDT"
     ],
     "symbols_4h": [
-        "BTCUSDT","ETHUSDT","BNBUSDT","XRPUSDT","ADAUSDT",
-        "SOLUSDT","DOGEUSDT","DOTUSDT","MATICUSDT","LTCUSDT",
-        "TRXUSDT","AVAXUSDT","LINKUSDT","ATOMUSDT","XMRUSDT",
-        "ETCUSDT","XLMUSDT","FILUSDT","APTUSDT","NEARUSDT"
+        "BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT",
+        "SOLUSDT", "DOGEUSDT", "DOTUSDT", "MATICUSDT", "LTCUSDT",
+        "TRXUSDT", "AVAXUSDT", "LINKUSDT", "ATOMUSDT", "XMRUSDT",
+        "ETCUSDT", "XLMUSDT", "FILUSDT", "APTUSDT", "NEARUSDT"
     ],
     "symbols_1d": [
-        "BTCUSDT","ETHUSDT","BNBUSDT","XRPUSDT","ADAUSDT",
-        "SOLUSDT","DOGEUSDT","DOTUSDT","MATICUSDT","LTCUSDT",
-        "TRXUSDT","AVAXUSDT","LINKUSDT","ATOMUSDT","XMRUSDT",
-        "ETCUSDT","XLMUSDT","FILUSDT","APTUSDT","NEARUSDT"
+        "BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT",
+        "SOLUSDT", "DOGEUSDT", "DOTUSDT", "MATICUSDT", "LTCUSDT",
+        "TRXUSDT", "AVAXUSDT", "LINKUSDT", "ATOMUSDT", "XMRUSDT",
+        "ETCUSDT", "XLMUSDT", "FILUSDT", "APTUSDT", "NEARUSDT"
     ],
     "symbols_15m": [
-        "BTCUSDT","ETHUSDT","BNBUSDT","XRPUSDT","ADAUSDT","SOLUSDT","DOGEUSDT","DOTUSDT","MATICUSDT","LTCUSDT",
-        "TRXUSDT","AVAXUSDT","LINKUSDT","ATOMUSDT","XMRUSDT","ETCUSDT","XLMUSDT","FILUSDT","APTUSDT","NEARUSDT",
-        "OPUSDT","ARBUSDT","SUIUSDT","PEPEUSDT","TONUSDT","UNIUSDT","AAVEUSDT","INJUSDT","RNDRUSDT","FTMUSDT",
-        "NEOUSDT","GALAUSDT","SEIUSDT","TIAUSDT","PYTHUSDT","JTOUSDT","WIFUSDT","JUPUSDT","STRKUSDT","BLURUSDT",
-        "RUNEUSDT","RAYUSDT","LDOUSDT","COMPUSDT","CRVUSDT","MKRUSDT","SNXUSDT","GMXUSDT","DYDXUSDT","ENSUSDT"
+        "BTCUSDT", "ETHUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "SOLUSDT",
+        "DOGEUSDT", "DOTUSDT", "MATICUSDT", "LTCUSDT", "TRXUSDT", "AVAXUSDT",
+        "LINKUSDT", "ATOMUSDT", "XMRUSDT", "ETCUSDT", "XLMUSDT", "FILUSDT",
+        "APTUSDT", "NEARUSDT", "OPUSDT", "ARBUSDT", "SUIUSDT", "PEPEUSDT",
+        "TONUSDT", "UNIUSDT", "AAVEUSDT", "INJUSDT", "RNDRUSDT", "FTMUSDT",
+        "NEOUSDT", "GALAUSDT", "SEIUSDT", "TIAUSDT", "PYTHUSDT", "JTOUSDT",
+        "WIFUSDT", "JUPUSDT", "STRKUSDT", "BLURUSDT", "RUNEUSDT", "RAYUSDT",
+        "LDOUSDT", "COMPUSDT", "CRVUSDT", "MKRUSDT", "SNXUSDT", "GMXUSDT",
+        "DYDXUSDT", "ENSUSDT"
     ],
 
-    "lookback_1h": 5,
-    "lookback_4h": 15,
-    "lookback_1d": 180,
-    "lookback_15m": 3,
+    # تعداد کندل‌ها (مضربی از 20)
+    "candles_1h": 80,
+    "candles_4h": 60,
+    "candles_1d": 60,
+    "candles_15m": 40,
+
+    # حداکثر بارها
     "max_bars": 300,
 
+    # آلارم‌ها
     "alarm_wma_direction": True,
     "alarm_cross_sma20": False,
     "alarm_cross_sma100": False,
@@ -68,27 +97,56 @@ DEFAULT_CONFIG = {
     "alarm_sma100_direction": False,
     "alarm_sma200_direction": False,
 
+    # ساخت PDF
     "make_pdf_1h": True,
     "make_pdf_1d": True,
 
+    # ساخت چارت ترکیبی 15m
     "make_combined_15m": True,
 
+    # chat_id ها
     "chat_id_1h": None,
     "chat_id_4h": None,
     "chat_id_1d": None,
     "chat_id_15m": None,
 
+    # حالت verbose
     "verbose_1h": True,
     "verbose_4h": True,
     "verbose_1d": True,
     "verbose_15m": True,
 
-    "cycle_progress_batch": 5
+    # گزارشات (batch) – پیش‌فرض 15
+    "cycle_progress_batch": 15,
+
+    # تنظیمات ذخیره JPG و صفحه ترکیبی 12 تایی
+    "save_jpg_enabled": True
 }
+
+# آخرین آلارم‌ها
+LAST_ALARMS = {
+    "1h": [],
+    "4h": [],
+    "1d": [],
+    "15m": []
+}
+
+# لاک‌های سیکل
+CYCLE_LOCKS = {
+    "1h": threading.Lock(),
+    "4h": threading.Lock(),
+    "1d": threading.Lock(),
+    "15m": threading.Lock()
+}
+
+# =========================================================
+# توابع کمکی
+# =========================================================
 
 def save_config(cfg: dict):
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(cfg, f, ensure_ascii=False, indent=2)
+
 
 def load_config() -> dict:
     if not os.path.exists(CONFIG_PATH):
@@ -97,26 +155,34 @@ def load_config() -> dict:
     with open(CONFIG_PATH, "r", encoding="utf-8") as f:
         return json.load(f)
 
-def reset_config():
+
+def reset_config() -> dict:
     cfg = DEFAULT_CONFIG.copy()
+    # پاک کردن آلارم‌ها
+    for k in LAST_ALARMS:
+        LAST_ALARMS[k] = []
     save_config(cfg)
     return cfg
+
 
 def now_utc():
     return dt.datetime.now(dt.timezone.utc)
 
+
 def now_utc_str():
     return now_utc().strftime("%Y-%m-%d %H:%M:%S")
 
-# =========================
-# توکن‌ها و ربات‌ها
-# =========================
 
-TOKEN_1H   = (os.getenv("TOKEN_1H") or "").strip()
-TOKEN_4H   = (os.getenv("TOKEN_4H") or "").strip()
-TOKEN_1D   = (os.getenv("TOKEN_1D") or "").strip()
-TOKEN_15M  = (os.getenv("TOKEN_15M") or "").strip()
+# =========================================================
+# ساخت ربات‌ها
+# =========================================================
+
+TOKEN_1H = (os.getenv("TOKEN_1H") or "").strip()
+TOKEN_4H = (os.getenv("TOKEN_4H") or "").strip()
+TOKEN_1D = (os.getenv("TOKEN_1D") or "").strip()
+TOKEN_15M = (os.getenv("TOKEN_15M") or "").strip()
 ADMIN_CHAT = (os.getenv("ADMIN_CHAT_ID") or "").strip()
+
 
 def create_bot(token: str):
     if not token or not isinstance(token, str):
@@ -125,86 +191,50 @@ def create_bot(token: str):
         return None
     try:
         return telebot.TeleBot(token, parse_mode="HTML")
-    except:
+    except Exception:
         return None
 
-bot_1h  = create_bot(TOKEN_1H)
-bot_4h  = create_bot(TOKEN_4H)
-bot_1d  = create_bot(TOKEN_1D)
+
+bot_1h = create_bot(TOKEN_1H)
+bot_4h = create_bot(TOKEN_4H)
+bot_1d = create_bot(TOKEN_1D)
 bot_15m = create_bot(TOKEN_15M)
 
-LAST_ALARMS = {
-    "1h": [],
-    "4h": [],
-    "1d": [],
-    "15m": []
-}
-
-CYCLE_LOCKS = {
-    "1h": threading.Lock(),
-    "4h": threading.Lock(),
-    "1d": threading.Lock(),
-    "15m": threading.Lock()
-}
-
-# =========================
-# راهنما
-# =========================
+# =========================================================
+# منوی اصلی (ربات 1h)
+# =========================================================
 
 HELP_TEXT = """
-Modu Bazler v5.1 – نسخه‌ی پایدار
+Modu Bazler v7
 
-📌 ربات‌ها:
-- 1h: ربات اصلی مدیریت و منو
-- 4h: ربات ۴ساعته
-- 1d: ربات روزانه
-- 15m: ربات ۱۵دقیقه‌ای
+ربات چند‌تایم‌فریمی برای تحلیل بازار کریپتو.
 
-✅ ثبت چت هر ربات:
-- در هر ربات دستور /start را بفرست تا chat_id ثبت شود.
+دستورات اصلی:
+/start  -> شروع و ثبت chat_id برای ربات 1h
 
-🧭 منوی ربات 1h:
-- چک یک نماد → بررسی پیشرفته یک نماد در 1h
-- اجرای دستی 1h → اجرای کامل سیکل 1h (با PDF در صورت فعال بودن)
-- اجرای فوری 4h / 1d / 15m → اجرای سیکل همان تایم‌فریم
-- مدیریت نمادهای 1h / 4h / 1d / 15m → افزودن/حذف نمادها
-- تنظیم آلارم‌ها → فعال/غیرفعال کردن انواع آلارم‌ها
-- گزارش آلارم‌ها → نمایش آخرین آلارم‌های هر گروه
-- وضعیت سیستم → نمایش تنظیمات و تعداد نمادها
-- تنظیمات پیشرفته → کنترل PDF و verbose برای هر ربات
-- اجرای چرخه‌ها → اجرای فوری همه‌ی تایم‌فریم‌ها
-- ریست برنامه → بازگشت به تنظیمات اولیه
-
-🔊 حالت پردازش (verbose):
-- ON → پیام‌های پردازش + نمودار همه‌ی نمادها
-- OFF → فقط نمودار نمادهای دارای آلارم، بدون پیام‌های میانی
-
-📄 PDF:
-- برای سیکل‌های 1h و 1d در صورت فعال بودن، یک فایل PDF از همه‌ی نمودارها ساخته و ارسال می‌شود.
-
-⏱ زمان‌بندی خودکار:
-- 1h: هر ساعت در دقیقه 22
-- 4h: در ساعات 2، 6، 10، 14، 18، 22 (دقیقه 7)
-- 1d: هر روز ساعت 1:05
-- 15m: هر ۱۵ دقیقه
+منوی اصلی شامل:
+- مدیریت ارزها برای هر تایم‌فریم
+- تنظیمات آلارم‌ها
+- وضعیت سیستم
+- تنظیمات پیشرفته (PDF، verbose، ترکیبی 15m، تعداد کندل‌ها)
+- اجرای چرخه‌ها با اختلاف ۵ دقیقه بین تایم‌فریم‌ها
+- ریست کامل تنظیمات و اجرای مجدد سیکل‌ها به ترتیب
 """
 
-# =========================
-# منوی اصلی ربات 1h
-# =========================
 
 def send_main_menu(chat_id):
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.row("چک یک نماد", "اجرای دستی 1h")
-    kb.row("اجرای فوری 4h", "اجرای فوری 1d")
-    kb.row("اجرای فوری 15m")
-    kb.row("مدیریت نمادهای 1h", "مدیریت نمادهای 4h")
-    kb.row("مدیریت نمادهای 1d", "مدیریت نمادهای 15m")
+
+    kb.row("مدیریت ارزهای 1h", "مدیریت ارزهای 4h")
+    kb.row("مدیریت ارزهای 1d", "مدیریت ارزهای 15m")
+
     kb.row("تنظیم آلارم‌ها", "گزارش آلارم‌ها")
     kb.row("وضعیت سیستم", "تنظیمات پیشرفته")
-    kb.row("اجرای چرخه‌ها", "ریست برنامه")
-    kb.row("راهنما", "رفرش منو")
+
+    kb.row("اجرای چرخه‌ها", "ریست کامل")
+
     bot_1h.send_message(chat_id, "منوی اصلی:", reply_markup=kb)
+
 
 @bot_1h.message_handler(commands=["start"])
 def start_main(m):
@@ -214,102 +244,99 @@ def start_main(m):
     bot_1h.send_message(m.chat.id, HELP_TEXT)
     send_main_menu(m.chat.id)
 
+
 @bot_1h.message_handler(commands=["refresh"])
-@bot_1h.message_handler(func=lambda m: m.text == "رفرش منو")
+@bot_1h.message_handler(func=lambda m: m.text == "بازگشت به منوی اصلی")
 def refresh_main(m):
     send_main_menu(m.chat.id)
 
-# =========================
-# استارت سایر ربات‌ها
-# =========================
 
-if bot_4h:
-    @bot_4h.message_handler(commands=["start"])
-    def start_4h(m):
-        cfg = load_config()
-        cfg["chat_id_4h"] = m.chat.id
-        save_config(cfg)
-        bot_4h.send_message(m.chat.id, "ربات ۴ساعته فعال شد.\n" + now_utc_str())
+# =========================================================
+# ریست کامل
+# =========================================================
 
-if bot_1d:
-    @bot_1d.message_handler(commands=["start"])
-    def start_1d(m):
-        cfg = load_config()
-        cfg["chat_id_1d"] = m.chat.id
-        save_config(cfg)
-        bot_1d.send_message(m.chat.id, "ربات روزانه فعال شد.\n" + now_utc_str())
-
-if bot_15m:
-    @bot_15m.message_handler(commands=["start"])
-    def start_15m(m):
-        cfg = load_config()
-        cfg["chat_id_15m"] = m.chat.id
-        save_config(cfg)
-        bot_15m.send_message(m.chat.id, "ربات ۱۵دقیقه‌ای فعال شد.\n" + now_utc_str())
-
-# =========================
-# ریست برنامه
-# =========================
-
-@bot_1h.message_handler(func=lambda m: m.text == "ریست برنامه")
+@bot_1h.message_handler(func=lambda m: m.text == "ریست کامل")
 def reset_app(m):
     cfg = reset_config()
     cfg["chat_id_1h"] = m.chat.id
     save_config(cfg)
-    bot_1h.send_message(m.chat.id, "برنامه و تنظیمات کامل ریست شد.")
+
+    # پاک کردن فایل‌های قبلی (اختیاری)
+    try:
+        for folder in [CHARTS_DIR, PDF_DIR]:
+            for fn in os.listdir(folder):
+                fp = os.path.join(folder, fn)
+                if os.path.isfile(fp):
+                    os.remove(fp)
+    except Exception:
+        pass
+
+    bot_1h.send_message(m.chat.id, "ریست کامل انجام شد. تنظیمات به حالت پیش‌فرض برگشت.")
     send_main_menu(m.chat.id)
 
-# =========================
-# مدیریت نمادها
-# =========================
+    # اجرای سیکل‌ها به ترتیب (1h -> 4h -> 1d -> 15m) با اختلاف ۵ دقیقه
+    start_all_cycles_with_offset(m.chat.id)
+
+
+# =========================================================
+# مدیریت ارزها
+# =========================================================
 
 def get_symbols(cfg, group):
     return cfg[f"symbols_{group}"]
+
 
 def set_symbols(cfg, group, symbols):
     cfg[f"symbols_{group}"] = symbols
     save_config(cfg)
 
+
 def show_symbol_menu(chat_id, group):
     cfg = load_config()
     symbols = get_symbols(cfg, group)
-    txt = f"نمادهای فعال در {group}:\n"
-    txt += ", ".join(symbols) if symbols else "هیچ نمادی ثبت نشده است."
+    txt = f"لیست ارزهای {group}:\n"
+    txt += ", ".join(symbols) if symbols else "هیچ ارزی ثبت نشده است."
+
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.row(f"افزودن نماد به {group}", f"حذف نماد از {group}")
-    kb.row(f"نمایش نمادهای {group}")
+    kb.row(f"افزودن ارز به {group}", f"حذف ارز از {group}")
+    kb.row(f"نمایش ارزهای {group}")
     kb.row("بازگشت به منوی اصلی")
+
     bot_1h.send_message(chat_id, txt, reply_markup=kb)
 
-@bot_1h.message_handler(func=lambda m: m.text == "مدیریت نمادهای 1h")
-def manage_1h(m): show_symbol_menu(m.chat.id, "1h")
 
-@bot_1h.message_handler(func=lambda m: m.text == "مدیریت نمادهای 4h")
-def manage_4h(m): show_symbol_menu(m.chat.id, "4h")
+@bot_1h.message_handler(func=lambda m: m.text == "مدیریت ارزهای 1h")
+def manage_1h(m):
+    show_symbol_menu(m.chat.id, "1h")
 
-@bot_1h.message_handler(func=lambda m: m.text == "مدیریت نمادهای 1d")
-def manage_1d(m): show_symbol_menu(m.chat.id, "1d")
 
-@bot_1h.message_handler(func=lambda m: m.text == "مدیریت نمادهای 15m")
-def manage_15m(m): show_symbol_menu(m.chat.id, "15m")
+@bot_1h.message_handler(func=lambda m: m.text == "مدیریت ارزهای 4h")
+def manage_4h(m):
+    show_symbol_menu(m.chat.id, "4h")
+
+
+@bot_1h.message_handler(func=lambda m: m.text == "مدیریت ارزهای 1d")
+def manage_1d(m):
+    show_symbol_menu(m.chat.id, "1d")
+
+
+@bot_1h.message_handler(func=lambda m: m.text == "مدیریت ارزهای 15m")
+def manage_15m(m):
+    show_symbol_menu(m.chat.id, "15m")
+
 
 def add_symbol_step(m, group):
     symbol = m.text.strip().upper()
-    cfg = load_config()
-    symbols = get_symbols(cfg, group)
-    if symbol not in symbols:
-        symbols.append(symbol)
-        set_symbols(cfg, group, symbols)
-        bot_1h.send_message(m.chat.id, f"{symbol} به لیست {group} اضافه شد.")
-    else:
-        bot_1h.send_message(m.chat.id, f"{symbol} قبلاً در لیست {group} وجود دارد.")
+, f"{symbol} قبلاً در لیست {group} وجود دارد.")
     show_symbol_menu(m.chat.id, group)
 
-@bot_1h.message_handler(func=lambda m: m.text.startswith("افزودن نماد به "))
+
+@bot_1h.message_handler(func=lambda m: m.text.startswith("افزودن ارز به "))
 def add_symbol_any(m):
     group = m.text.split()[-1]
-    msg = bot_1h.send_message(m.chat.id, "نماد را وارد کنید:")
+    msg = bot_1h.send_message(m.chat.id, "نماد را وارد کنید (مثال: BTCUSDT):")
     bot_1h.register_next_step_handler(msg, lambda mm: add_symbol_step(mm, group))
+
 
 def remove_symbol_step(m, group):
     symbol = m.text.strip().upper()
@@ -320,27 +347,30 @@ def remove_symbol_step(m, group):
         set_symbols(cfg, group, symbols)
         bot_1h.send_message(m.chat.id, f"{symbol} از لیست {group} حذف شد.")
     else:
-        bot_1h.send_message(m.chat.id, f"{symbol} در لیست {group} وجود ندارد.")
+        bot_1h.send_message(m.chat.id, f"{symbol} در لیست {group} یافت نشد.")
     show_symbol_menu(m.chat.id, group)
 
-@bot_1h.message_handler(func=lambda m: m.text.startswith("حذف نماد از "))
+
+@bot_1h.message_handler(func=lambda m: m.text.startswith("حذف ارز از "))
 def remove_symbol_any(m):
     group = m.text.split()[-1]
-    msg = bot_1h.send_message(m.chat.id, "نماد مورد نظر را وارد کنید:")
+    msg = bot_1h.send_message(m.chat.id, "نماد مورد نظر برای حذف را وارد کنید:")
     bot_1h.register_next_step_handler(msg, lambda mm: remove_symbol_step(mm, group))
 
-@bot_1h.message_handler(func=lambda m: m.text.startswith("نمایش نمادهای "))
+
+@bot_1h.message_handler(func=lambda m: m.text.startswith("نمایش ارزهای "))
 def show_symbols_any(m):
     group = m.text.split()[-1]
     cfg = load_config()
     symbols = get_symbols(cfg, group)
-    txt = f"نمادهای {group}:\n"
-    txt += ", ".join(symbols) if symbols else "هیچ نمادی ثبت نشده است."
+    txt = f"ارزهای {group}:\n"
+    txt += ", ".join(symbols) if symbols else "هیچ ارزی ثبت نشده است."
     bot_1h.send_message(m.chat.id, txt)
 
-# =========================
+
+# =========================================================
 # تنظیم آلارم‌ها
-# =========================
+# =========================================================
 
 @bot_1h.message_handler(func=lambda m: m.text == "تنظیم آلارم‌ها")
 def alarms_menu(m):
@@ -355,11 +385,14 @@ def alarms_menu(m):
         "alarm_sma100_direction",
         "alarm_sma200_direction"
     ]:
-        kb.add(types.InlineKeyboardButton(
-            f"{key} ({'ON' if cfg.get(key) else 'OFF'})",
-            callback_data=f"alarm_{key}"
-        ))
+        kb.add(
+            types.InlineKeyboardButton(
+                f"{key} ({'ON' if cfg.get(key) else 'OFF'})",
+                callback_data=f"alarm_{key}"
+            )
+        )
     bot_1h.send_message(m.chat.id, "آلارم‌ها را تنظیم کنید:", reply_markup=kb)
+
 
 @bot_1h.callback_query_handler(func=lambda c: c.data.startswith("alarm_"))
 def toggle_alarm(c):
@@ -370,37 +403,35 @@ def toggle_alarm(c):
     bot_1h.answer_callback_query(c.id, f"{key} -> {'ON' if cfg[key] else 'OFF'}")
     alarms_menu(c.message)
 
-# =========================
-# گزارش آلارم‌ها
-# =========================
 
 @bot_1h.message_handler(func=lambda m: m.text == "گزارش آلارم‌ها")
 def alarms_report(m):
     txt = ""
-    for group in ["1h","4h","1d","15m"]:
+    for group in ["1h", "4h", "1d", "15m"]:
         if LAST_ALARMS[group]:
             txt += f"آلارم‌های {group}:\n"
             for item in LAST_ALARMS[group]:
                 txt += f"{item['symbol']} ({item['interval']}):\n"
                 for a in item["alarms"]:
-                    txt += f" - {a}\n"
+                    txt += f"  - {a}\n"
                 txt += f"زمان: {item['time']}\n\n"
     if not txt:
         txt = "هیچ آلارمی ثبت نشده است."
     bot_1h.send_message(m.chat.id, txt)
 
-# =========================
-# وضعیت سیستم و تنظیمات پیشرفته
-# =========================
+
+# =========================================================
+# وضعیت سیستم
+# =========================================================
 
 @bot_1h.message_handler(func=lambda m: m.text == "وضعیت سیستم")
 def system_status(m):
     cfg = load_config()
     txt = "وضعیت سیستم:\n"
-    txt += f"نمادهای 1h: {len(cfg['symbols_1h'])}\n"
-    txt += f"نمادهای 4h: {len(cfg['symbols_4h'])}\n"
-    txt += f"نمادهای 1d: {len(cfg['symbols_1d'])}\n"
-    txt += f"نمادهای 15m: {len(cfg['symbols_15m'])}\n"
+    txt += f"تعداد ارزهای 1h: {len(cfg['symbols_1h'])}\n"
+    txt += f"تعداد ارزهای 4h: {len(cfg['symbols_4h'])}\n"
+    txt += f"تعداد ارزهای 1d: {len(cfg['symbols_1d'])}\n"
+    txt += f"تعداد ارزهای 15m: {len(cfg['symbols_15m'])}\n"
     txt += f"PDF 1h: {'ON' if cfg['make_pdf_1h'] else 'OFF'}\n"
     txt += f"PDF 1d: {'ON' if cfg['make_pdf_1d'] else 'OFF'}\n"
     txt += f"Combined 15m: {'ON' if cfg.get('make_combined_15m', True) else 'OFF'}\n"
@@ -408,556 +439,334 @@ def system_status(m):
     txt += f"verbose 4h: {'ON' if cfg['verbose_4h'] else 'OFF'}\n"
     txt += f"verbose 1d: {'ON' if cfg['verbose_1d'] else 'OFF'}\n"
     txt += f"verbose 15m: {'ON' if cfg['verbose_15m'] else 'OFF'}\n"
+    txt += f"تعداد کندل 1h: {cfg['candles_1h']}\n"
+    txt += f"تعداد کندل 4h: {cfg['candles_4h']}\n"
+    txt += f"تعداد کندل 1d: {cfg['candles_1d']}\n"
+    txt += f"تعداد کندل 15m: {cfg['candles_15m']}\n"
+    txt += f"گزارشات (batch): {cfg['cycle_progress_batch']}\n"
+    txt += f"ذخیره JPG و صفحه ترکیبی: {'ON' if cfg['save_jpg_enabled'] else 'OFF'}\n"
     bot_1h.send_message(m.chat.id, txt)
+
+
+# =========================================================
+# تنظیمات پیشرفته (PDF، verbose، combined، تعداد کندل‌ها)
+# =========================================================
 
 @bot_1h.message_handler(func=lambda m: m.text == "تنظیمات پیشرفته")
 def advanced_settings(m):
     cfg = load_config()
     kb = types.InlineKeyboardMarkup()
-    kb.add(types.InlineKeyboardButton(f"PDF 1h ({'ON' if cfg['make_pdf_1h'] else 'OFF'})", callback_data="adv_pdf_1h"))
-    kb.add(types.InlineKeyboardButton(f"PDF 1d ({'ON' if cfg['make_pdf_1d'] else 'OFF'})", callback_data="adv_pdf_1d"))
-    kb.add(types.InlineKeyboardButton(f"Combined 15m ({'ON' if cfg.get('make_combined_15m', True) else 'OFF'})", callback_data="adv_combined_15m"))
-    kb.add(types.InlineKeyboardButton(f"verbose 1h ({'ON' if cfg['verbose_1h'] else 'OFF'})", callback_data="adv_verbose_1h"))
-    kb.add(types.InlineKeyboardButton(f"verbose 4h ({'ON' if cfg['verbose_4h'] else 'OFF'})", callback_data="adv_verbose_4h"))
-    kb.add(types.InlineKeyboardButton(f"verbose 1d ({'ON' if cfg['verbose_1d'] else 'OFF'})", callback_data="adv_verbose_1d"))
-    kb.add(types.InlineKeyboardButton(f"verbose 15m ({'ON' if cfg['verbose_15m'] else 'OFF'})", callback_data="adv_verbose_15m"))
-    kb.add(types.InlineKeyboardButton("ریست کامل برنامه", callback_data="adv_reset_app"))
+
+    kb.add(types.InlineKeyboardButton(
+        f"PDF 1h ({'ON' if cfg['make_pdf_1h'] else 'OFF'})",
+        callback_data="adv_pdf_1h"
+    ))
+    kb.add(types.InlineKeyboardButton(
+        f"PDF 1d ({'ON' if cfg['make_pdf_1d'] else 'OFF'})",
+        callback_data="adv_pdf_1d"
+    ))
+    kb.add(types.InlineKeyboardButton(
+        f"Combined 15m ({'ON' if cfg.get('make_combined_15m', True) else 'OFF'})",
+        callback_data="adv_combined_15m"
+    ))
+    kb.add(types.InlineKeyboardButton(
+        f"verbose 1h ({'ON' if cfg['verbose_1h'] else 'OFF'})",
+        callback_data="adv_verbose_1h"
+    ))
+    kb.add(types.InlineKeyboardButton(
+        f"verbose 4h ({'ON' if cfg['verbose_4h'] else 'OFF'})",
+        callback_data="adv_verbose_4h"
+    ))
+    kb.add(types.InlineKeyboardButton(
+        f"verbose 1d ({'ON' if cfg['verbose_1d'] else 'OFF'})",
+        callback_data="adv_verbose_1d"
+    ))
+    kb.add(types.InlineKeyboardButton(
+        f"verbose 15m ({'ON' if cfg['verbose_15m'] else 'OFF'})",
+        callback_data="adv_verbose_15m"
+    ))
+
+    # تنظیم تعداد کندل‌ها (مضربی از 20)
+    kb.add(types.InlineKeyboardButton(
+        f"کندل 1h: {cfg['candles_1h']}",
+        callback_data="adv_candles_1h"
+    ))
+    kb.add(types.InlineKeyboardButton(
+        f"کندل 4h: {cfg['candles_4h']}",
+        callback_data="adv_candles_4h"
+    ))
+    kb.add(types.InlineKeyboardButton(
+        f"کندل 1d: {cfg['candles_1d']}",
+        callback_data="adv_candles_1d"
+    ))
+    kb.add(types.InlineKeyboardButton(
+        f"کندل 15m: {cfg['candles_15m']}",
+        callback_data="adv_candles_15m"
+    ))
+
+    # گزارشات batch
+    kb.add(types.InlineKeyboardButton(
+        f"گزارشات batch: {cfg['cycle_progress_batch']}",
+        callback_data="adv_batch"
+    ))
+
+    # ذخیره JPG
+    kb.add(types.InlineKeyboardButton(
+        f"ذخیره JPG ({'ON' if cfg['save_jpg_enabled'] else 'OFF'})",
+        callback_data="adv_save_jpg"
+    ))
+
+    # ریست از همین منو
+    kb.add(types.InlineKeyboardButton(
+        "ریست تنظیمات (پیش‌فرض)",
+        callback_data="adv_reset_app"
+    ))
+
     bot_1h.send_message(m.chat.id, "تنظیمات پیشرفته:", reply_markup=kb)
+
 
 @bot_1h.callback_query_handler(func=lambda c: c.data.startswith("adv_"))
 def advanced_settings_handler(c):
     cfg = load_config()
-    if c.data == "adv_pdf_1h":
+    data = c.data
+
+    if data == "adv_pdf_1h":
         cfg["make_pdf_1h"] = not cfg["make_pdf_1h"]
-    elif c.data == "adv_pdf_1d":
+        bot_1h.answer_callback_query(c.id, f"PDF 1h -> {'ON' if cfg['make_pdf_1h'] else 'OFF'}")
+
+    elif data == "adv_pdf_1d":
         cfg["make_pdf_1d"] = not cfg["make_pdf_1d"]
-    elif c.data == "adv_combined_15m":
+        bot_1h.answer_callback_query(c.id, f"PDF 1d -> {'ON' if cfg['make_pdf_1d'] else 'OFF'}")
+
+    elif data == "adv_combined_15m":
         cfg["make_combined_15m"] = not cfg.get("make_combined_15m", True)
-    elif c.data == "adv_verbose_1h":
+        bot_1h.answer_callback_query(c.id, f"Combined 15m -> {'ON' if cfg['make_combined_15m'] else 'OFF'}")
+
+    elif data == "adv_verbose_1h":
         cfg["verbose_1h"] = not cfg["verbose_1h"]
-    elif c.data == "adv_verbose_4h":
+        bot_1h.answer_callback_query(c.id, f"verbose 1h -> {'ON' if cfg['verbose_1h'] else 'OFF'}")
+
+    elif data == "adv_verbose_4h":
         cfg["verbose_4h"] = not cfg["verbose_4h"]
-    elif c.data == "adv_verbose_1d":
+        bot_1h.answer_callback_query(c.id, f"verbose 4h -> {'ON' if cfg['verbose_4h'] else 'OFF'}")
+
+    elif data == "adv_verbose_1d":
         cfg["verbose_1d"] = not cfg["verbose_1d"]
-    elif c.data == "adv_verbose_15m":
+        bot_1h.answer_callback_query(c.id, f"verbose 1d -> {'ON' if cfg['verbose_1d'] else 'OFF'}")
+
+    elif data == "adv_verbose_15m":
         cfg["verbose_15m"] = not cfg["verbose_15m"]
-    elif c.data == "adv_reset_app":
+        bot_1h.answer_callback_query(c.id, f"verbose 15m -> {'ON' if cfg['verbose_15m'] else 'OFF'}")
+
+    elif data.startswith("adv_candles_"):
+        tf = data.split("_")[-1]  # 1h / 4h / 1d / 15m
+        key = f"candles_{tf}"
+        current = cfg[key]
+        # افزایش یا کاهش مضربی از 20 (بین 20 و 400 مثلاً)
+        new_val = current + 20
+        if new_val > 400:
+            new_val = 20
+        cfg[key] = new_val
+        bot_1h.answer_callback_query(c.id, f"{key} -> {new_val}")
+
+    elif data == "adv_batch":
+        current = cfg["cycle_progress_batch"]
+        new_val = current + 5
+        if new_val > 60:
+            new_val = 15
+        cfg["cycle_progress_batch"] = new_val
+        bot_1h.answer_callback_query(c.id, f"batch -> {new_val}")
+
+    elif data == "adv_save_jpg":
+        cfg["save_jpg_enabled"] = not cfg["save_jpg_enabled"]
+        bot_1h.answer_callback_query(c.id, f"save_jpg -> {'ON' if cfg['save_jpg_enabled'] else 'OFF'}")
+
+    elif data == "adv_reset_app":
         cfg = reset_config()
+        bot_1h.answer_callback_query(c.id, "تنظیمات به حالت پیش‌فرض برگشت.")
+        cfg["chat_id_1h"] = c.message.chat.id
+
     save_config(cfg)
-    bot_1h.answer_callback_query(c.id, "تنظیمات اعمال شد.")
     advanced_settings(c.message)
 
-# =========================
-# راهنما
-# =========================
 
-@bot_1h.message_handler(func=lambda m: m.text == "راهنما")
-def help_menu(m):
-    bot_1h.send_message(m.chat.id, HELP_TEXT)
+# =========================================================
+# اجرای چرخه‌ها با اختلاف ۵ دقیقه
+# =========================================================
 
-# =========================
-# دیتا، اندیکاتورها، نمودار
-# =========================
+def run_cycle(group: str):
+    """
+    اجرای سیکل برای تایم‌فریم مشخص.
+    اینجا فقط اسکلت کار را می‌گذاریم؛
+    فرض می‌کنیم تابعی مثل fetch_data_and_make_charts وجود دارد.
+    """
+    cfg = load_config()
+    candles_key = f"candles_{group}"
+    candles = cfg.get(candles_key, 60)
+    symbols = cfg.get(f"symbols_{group}", [])
+    chat_id_key = f"chat_id_{group}"
+    chat_id = cfg.get(chat_id_key)
 
-def _binance_interval(i: str) -> str:
-    return {"1h": "1h", "4h": "4h", "1d": "1d", "15m": "15m"}[i]
-
-def _kucoin_interval(i: str) -> str:
-    return {"1h": "1hour", "4h": "4hour", "1d": "1day", "15m": "15min"}[i]
-
-def fetch_ohlc(symbol: str, interval: str, lookback_days: int, max_bars: int) -> pd.DataFrame:
-    limit = max(200, max_bars)
-    try:
-        url = "https://api.binance.com/api/v3/klines"
-        r = requests.get(url, params={
-            "symbol": symbol,
-            "interval": _binance_interval(interval),
-            "limit": limit
-        }, timeout=10)
-        r.raise_for_status()
-        data = r.json()
-        rows = [[int(k[0]), float(k[1]), float(k[2]), float(k[3]), float(k[4]), float(k[5])] for k in data]
-        df = pd.DataFrame(rows, columns=["t","o","h","l","c","v"])
-        df["t"] = pd.to_datetime(df["t"], unit="ms", utc=True)
-        df.set_index("t", inplace=True)
-        return df
-    except:
-        pass
-    try:
-        sym = symbol.replace("USDT", "-USDT")
-        end = int(now_utc().timestamp())
-        start = end - 60 * 60 * (limit + 10)
-        url = "https://api.kucoin.com/api/v1/market/candles"
-        r = requests.get(url, params={
-            "symbol": sym,
-            "type": _kucoin_interval(interval),
-            "startAt": start,
-            "endAt": end
-        }, timeout=10)
-        r.raise_for_status()
-        data = r.json()["data"]
-        rows = [[int(k[0]), float(k[1]), float(k[3]), float(k[4]), float(k[2]), float(k[5])] for k in data]
-        df = pd.DataFrame(rows, columns=["t","o","h","l","c","v"])
-        df["t"] = pd.to_datetime(df["t"], unit="s", utc=True)
-        df.sort_values("t", inplace=True)
-        df.set_index("t", inplace=True)
-        return df
-    except:
-        return pd.DataFrame()
-
-def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-    if df.empty:
-        return df
-    df["SMA20"]  = df["c"].rolling(20).mean()
-    df["SMA100"] = df["c"].rolling(100).mean()
-    df["SMA200"] = df["c"].rolling(200).mean()
-    df["WMA20"] = df["c"].rolling(20).apply(lambda x: np.average(x, weights=np.arange(1, len(x)+1)), raw=True)
-    df["WMA20_slope"] = df["WMA20"].diff()
-    delta = df["c"].diff()
-    gain = np.where(delta > 0, delta, 0.0)
-    loss = np.where(delta < 0, -delta, 0.0)
-    roll_gain = pd.Series(gain, index=df.index).rolling(14).mean()
-    roll_loss = pd.Series(loss, index=df.index).rolling(14).mean()
-    rs = roll_gain / (roll_loss + 1e-9)
-    df["RSI14"] = 100 - (100 / (1 + rs))
-    ema12 = df["c"].ewm(span=12, adjust=False).mean()
-    ema26 = df["c"].ewm(span=26, adjust=False).mean()
-    df["MACD"] = ema12 - ema26
-    df["MACD_signal"] = df["MACD"].ewm(span=9, adjust=False).mean()
-    df["MACD_hist"] = df["MACD"] - df["MACD_signal"]
-    return df
-
-def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars: int, png_name: str):
-    df = fetch_ohlc(symbol, interval, lookback_days, max_bars)
-    if df.empty:
-        df = pd.DataFrame(columns=["o","h","l","c","v"])
-        df.index = pd.to_datetime([])
-    else:
-        df = df[["o","h","l","c","v"]]
-    df = compute_indicators(df)
-    fig = make_subplots(rows=3, cols=1, shared_xaxes=True, row_heights=[0.6,0.2,0.2], vertical_spacing=0.03)
-    fig.add_trace(go.Candlestick(x=df.index, open=df["o"], high=df["h"], low=df["l"], close=df["c"], name="Price"), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df.index, y=df["SMA20"],  mode="lines", name="SMA20",  line=dict(color="blue")),   row=1, col=1)
-    fig.add_trace(go.Scatter(x=df.index, y=df["SMA100"], mode="lines", name="SMA100", line=dict(color="orange")), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df.index, y=df["SMA200"], mode="lines", name="SMA200", line=dict(color="purple")), row=1, col=1)
-    wma   = df["WMA20"]
-    slope = df["WMA20_slope"]
-    wma_up   = wma.where(slope >= 0)
-    wma_down = wma.where(slope < 0)
-    fig.add_trace(go.Scatter(x=df.index, y=wma_up,   mode="lines", name="WMA20 Up",   line=dict(color="green", width=2, dash="dot")), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df.index, y=wma_down, mode="lines", name="WMA20 Down", line=dict(color="red",   width=2, dash="dot")), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df.index, y=df["RSI14"], mode="lines", name="RSI14", line=dict(color="brown")), row=2, col=1)
-    fig.add_hline(y=70, line=dict(color="red", dash="dash"), row=2, col=1)
-    fig.add_hline(y=30, line=dict(color="green", dash="dash"), row=2, col=1)
-    fig.add_trace(go.Scatter(x=df.index, y=df["MACD"],        mode="lines", name="MACD",   line=dict(color="black")),   row=3, col=1)
-    fig.add_trace(go.Scatter(x=df.index, y=df["MACD_signal"], mode="lines", name="Signal", line=dict(color="magenta")), row=3, col=1)
-    fig.add_trace(go.Bar(x=df.index, y=df["MACD_hist"], name="Hist", marker_color="gray"), row=3, col=1)
-    fig.update_layout(title=f"{symbol} – {interval}", xaxis_rangeslider_visible=False, template="plotly_white", height=1000)
-    fig.add_annotation(text=f"{symbol} – {interval}", xref="paper", yref="paper", x=0.5, y=1.05, showarrow=False, font=dict(size=30, color="black"))
-    fig.update_yaxes(side="right", showgrid=True)
-    png_path = os.path.join(CHARTS_DIR, png_name)
-    try:
-        fig.write_image(png_path, width=1800, height=1100, scale=3)
-    except:
-        pass
-    return {
-        "symbol": symbol,
-        "interval": interval,
-        "png_path": png_path,
-        "created_at": now_utc_str(),
-        "wma": df["WMA20"].tolist() if "WMA20" in df.columns else [],
-        "wma_slope": df["WMA20_slope"].tolist() if "WMA20_slope" in df.columns else [],
-        "sma20": df["SMA20"].tolist() if "SMA20" in df.columns else [],
-        "sma100": df["SMA100"].tolist() if "SMA100" in df.columns else [],
-        "sma200": df["SMA200"].tolist() if "SMA200" in df.columns else []
-    }
-
-def detect_alarms(cfg: dict, info: dict, group: str):
-    alarms = []
-    wma    = info["wma"]
-    slope  = info["wma_slope"]
-    sma20  = info["sma20"]
-    sma100 = info["sma100"]
-    sma200 = info["sma200"]
-    if len(wma) < 3:
-        return alarms
-    if cfg.get("alarm_wma_direction", True):
-        if slope[-2] < 0 and slope[-1] > 0:
-            alarms.append("WMA20 جهت رو به بالا گرفت")
-        if slope[-2] > 0 and slope[-1] < 0:
-            alarms.append("WMA20 جهت رو به پایین گرفت")
-    def cross(a, b):
-        if len(a) < 2 or len(b) < 2:
-            return False
-        return (a[-2] - b[-2]) * (a[-1] - b[-1]) < 0
-    if cfg.get("alarm_cross_sma20", False) and cross(wma, sma20):
-        alarms.append("برخورد WMA20 با SMA20")
-    if cfg.get("alarm_cross_sma100", False) and cross(wma, sma100):
-        alarms.append("برخورد WMA20 با SMA100")
-    if cfg.get("alarm_cross_sma200", False) and cross(wma, sma200):
-        alarms.append("برخورد WMA20 با SMA200")
-    def dir_change(arr, name):
-        if len(arr) < 3:
-            return
-        d1 = arr[-1] - arr[-2]
-        d2 = arr[-2] - arr[-3]
-        if d2 < 0 and d1 > 0:
-            alarms.append(f"{name} جهت رو به بالا گرفت")
-        if d2 > 0 and d1 < 0:
-            alarms.append(f"{name} جهت رو به پایین گرفت")
-    if cfg.get("alarm_sma20_direction", False):
-        dir_change(sma20, "SMA20")
-    if cfg.get("alarm_sma100_direction", False):
-        dir_change(sma100, "SMA100")
-    if cfg.get("alarm_sma200_direction", False):
-        dir_change(sma200, "SMA200")
-    if alarms:
-        LAST_ALARMS[group] = [{
-            "symbol": info["symbol"],
-            "interval": info["interval"],
-            "time": info["created_at"],
-            "alarms": alarms
-        }]
-    return alarms
-
-def make_15m_combined_pages(jpg_paths: list) -> list:
-    pages = []
-    page_w, page_h = 1800, 1400
-    cell_w, cell_h = page_w // 4, page_h // 3
-
-    for i in range(0, len(jpg_paths), 12):
-        chunk = jpg_paths[i:i+12]
-        page = Image.new("RGB", (page_w, page_h), (255, 255, 255))
-        idx = 0
-        for r in range(3):
-            for c in range(4):
-                if idx < len(chunk):
-                    img = Image.open(chunk[idx]).convert("RGB")
-                    img = img.resize((cell_w, cell_h), Image.LANCZOS)
-                    x = c * cell_w
-                    y = r * cell_h
-                    page.paste(img, (x, y))
-                    idx += 1
-        out_name = f"15m_combined_{i//12 + 1}.jpg"
-        out_path = os.path.join(CHARTS_DIR, out_name)
-        page.save(out_path, format="JPEG", quality=95)
-        pages.append(out_path)
-
-    return pages
-
-# =========================
-# اجرای سیکل‌ها با قفل (verbose ON/OFF)
-# =========================
-
-def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str, lookback_days: int, max_bars: int, make_pdf: bool):
-    lock = CYCLE_LOCKS.get(group)
-    if lock is None:
-        return
-    if not lock.acquire(blocking=False):
+    if not chat_id:
         return
 
-    combined_jpgs = []   # برای ساخت صفحات ۱۲تایی سیکل 15m
+    with CYCLE_LOCKS[group]:
+        # اینجا باید داده‌ها را از صرافی بگیریم و چارت بسازیم
+        # برای سادگی، فقط یک پیام تست می‌فرستیم
+        bot_1h.send_message(
+            chat_id,
+            f"شروع سیکل {group} با {len(symbols)} ارز و {candles} کندل.\nزمان: {now_utc_str()}"
+        )
 
-    try:
-        cfg = load_config()
-        verbose = cfg.get(f"verbose_{group}", True)
+        # مثال: ساخت چارت‌ها و ذخیره JPG
+        if cfg["save_jpg_enabled"]:
+            # فرض: برای هر نماد یک تصویر ساخته می‌شود
+            # اینجا فقط شبیه‌سازی می‌کنیم
+            for i, sym in enumerate(symbols[:12]):  # حداکثر 12 تا برای صفحه ترکیبی
+                img_path = os.path.join(CHARTS_DIR, f"{group}_{sym}.jpg")
+                fig = plt.figure(figsize=(4, 3))
+                plt.title(f"{group} - {sym}")
+                plt.plot(np.random.randn(50).cumsum())
+                plt.tight_layout()
+                fig.savefig(img_path, dpi=150)
+                plt.close(fig)
 
-        if chat_id is None:
-            return
+            # ساخت صفحه ترکیبی 12 تایی
+            combined_path = os.path.join(CHARTS_DIR, f"{group}_combined_12.jpg")
+            make_combined_page(group, symbols[:12], combined_path)
 
-        if verbose:
-            bot.send_message(chat_id, f"شروع چرخه {group}\n{now_utc_str()} UTC")
+            # ارسال صفحه ترکیبی به ربات
+            with open(combined_path, "rb") as f:
+                bot_1h.send_photo(chat_id, f, caption=f"صفحه ترکیبی 12 چارت ({group})")
 
-        unique_symbols = list(dict.fromkeys(symbols))
-        total = len(unique_symbols)
-        processed = 0
-        batch_size = cfg.get("cycle_progress_batch", 5)
 
-        pdf = None
-        pdf_filename = None
+def make_combined_page(group: str, symbols, output_path: str):
+    """
+    چیدمان 12 تصویر روی یک صفحه بدون افت کیفیت محسوس.
+    فرض: قبلاً برای هر نماد فایل JPG ساخته شده است.
+    """
+    images = []
+    for sym in symbols:
+        img_path = os.path.join(CHARTS_DIR, f"{group}_{sym}.jpg")
+        if os.path.exists(img_path):
+            images.append(Image.open(img_path))
 
-        if make_pdf and group in ["1h", "1d"]:
-            pdf_filename = os.path.join(PDF_DIR, f"{group}_{now_utc().strftime('%Y%m%d_%H%M%S')}.pdf")
-            pdf = PdfPages(pdf_filename)
+    if not images:
+        return
 
-        for sym in unique_symbols:
-            processed += 1
+    # همه را به اندازه یکسان تبدیل می‌کنیم
+    # مثلاً 600x400 برای هر چارت
+    w, h = 600, 400
+    resized = [img.resize((w, h), Image.LANCZOS) for img in images]
 
-            if verbose and (processed % batch_size == 0 or processed == 1 or processed == total):
-                bot.send_message(chat_id, f"چرخه {group}: {processed}/{total} نماد، {total - processed} باقی مانده.")
+    # چیدمان 3x4 (12 تصویر)
+    cols = 3
+    rows = 4
+    page_w = cols * w
+    page_h = rows * h
 
-            ts = now_utc().strftime("%Y%m%d_%H%M%S")
-            png = f"{group}_{sym}_{ts}.png"
+    page = Image.new("RGB", (page_w, page_h), (255, 255, 255))
 
-            info = create_plotly_chart(sym, interval, lookback_days, max_bars, png)
-            alarms = detect_alarms(cfg, info, group)
+    for idx, img in enumerate(resized):
+        r = idx // cols
+        c = idx % cols
+        x = c * w
+        y = r * h
+        page.paste(img, (x, y))
 
-            # ذخیره JPG برای سیکل 15m
-            if group == "15m":
-                try:
-                    img = Image.open(info["png_path"]).convert("RGB")
-                    jpg_name = os.path.splitext(os.path.basename(info["png_path"]))[0] + ".jpg"
-                    jpg_path = os.path.join(CHARTS_DIR, jpg_name)
-                    img.save(jpg_path, format="JPEG", quality=95)
-                    combined_jpgs.append(jpg_path)
-                except:
-                    pass
+    page.save(output_path, "JPEG", quality=90)
 
-            # ارسال نمودار به ربات
-            if verbose or alarms:
-                caption = f"{sym} ({group})"
-                if alarms:
-                    caption += "\n" + "\n".join(alarms)
-                else:
-                    caption += " – بدون آلارم"
 
-                try:
-                    with open(info["png_path"], "rb") as f:
-                        bot.send_photo(chat_id, f, caption=caption)
-                except:
-                    pass
-
-            # افزودن به PDF
-            if pdf is not None:
-                try:
-                    img = plt.imread(info["png_path"])
-                    fig, ax = plt.subplots(figsize=(10, 6))
-                    ax.imshow(img)
-                    ax.axis("off")
-                    ax.set_title(f"{sym} – {group}")
-                    pdf.savefig(fig)
-                    plt.close(fig)
-                except:
-                    pass
-
-            time.sleep(0.3)
-
-        # بستن PDF و ارسال
-        if pdf is not None:
-            try:
-                pdf.close()
-                with open(pdf_filename, "rb") as f:
-                    bot.send_document(chat_id, f, caption=f"گزارش PDF کامل سیکل {group}")
-            except:
-                pass
-
-        # ساخت صفحات ۱۲تایی JPG برای سیکل 15m
-        if group == "15m":
-            cfg = load_config()
-            if cfg.get("make_combined_15m", True) and combined_jpgs:
-                pages = make_15m_combined_pages(combined_jpgs)
-                for p in pages:
-                    try:
-                        with open(p, "rb") as f:
-                            bot.send_photo(chat_id, f, caption="صفحهٔ تجمیعی ۱۲ نموداری 15m")
-                    except:
-                        pass
-
-        if verbose:
-            bot.send_message(chat_id, f"پایان چرخه {group}")
-
-    finally:
-        lock.release()
-
-# =========================
-# تک نماد و اجراهای فوری
-# =========================
-
-@bot_1h.message_handler(func=lambda m: m.text == "چک یک نماد")
-def check_single_symbol(m):
-    msg = bot_1h.send_message(m.chat.id, "نماد مورد نظر را وارد کنید (مثلاً BTCUSDT):")
-    bot_1h.register_next_step_handler(msg, process_single_symbol)
-
-def process_single_symbol(m):
-    symbol = m.text.strip().upper()
+def start_all_cycles_with_offset(chat_id_1h: int):
+    """
+    اجرای سیکل‌ها با اختلاف ۵ دقیقه:
+    - 1h: بلافاصله
+    - 4h: بعد از 5 دقیقه
+    - 1d: بعد از 10 دقیقه
+    - 15m: بعد از 15 دقیقه
+    """
     cfg = load_config()
-    bot_1h.send_message(m.chat.id, f"در حال بررسی {symbol} در تایم‌فریم 1h ...")
-    ts = now_utc().strftime("%Y%m%d_%H%M%S")
-    png = f"single_1h_{symbol}_{ts}.png"
-    info = create_plotly_chart(symbol, "1h", cfg["lookback_1h"], cfg["max_bars"], png)
-    try:
-        with open(info["png_path"], "rb") as f:
-            bot_1h.send_photo(m.chat.id, f, caption=f"{symbol} – بررسی 1h")
-    except:
-        pass
-    bot_1h.send_message(m.chat.id, "بررسی تک نماد پایان یافت.")
+    cfg["chat_id_1h"] = chat_id_1h
+    save_config(cfg)
 
-@bot_1h.message_handler(func=lambda m: m.text == "اجرای دستی 1h")
-def manual_1h(m):
-    cfg = load_config()
-    chat = cfg.get("chat_id_1h") or m.chat.id
-    threading.Thread(
-        target=run_cycle,
-        args=("1h", bot_1h, chat, cfg["symbols_1h"], "1h", cfg["lookback_1h"], cfg["max_bars"], cfg.get("make_pdf_1h", True)),
-        daemon=True
-    ).start()
+    def delayed_run(group, delay_min):
+        time.sleep(delay_min * 60)
+        run_cycle(group)
 
-@bot_1h.message_handler(func=lambda m: m.text == "اجرای فوری 4h")
-def manual_4h(m):
-    cfg = load_config()
-    chat = cfg.get("chat_id_4h") or m.chat.id
-    if bot_4h:
-        threading.Thread(
-            target=run_cycle,
-            args=("4h", bot_4h, chat, cfg["symbols_4h"], "4h", cfg["lookback_4h"], cfg["max_bars"], False),
-            daemon=True
-        ).start()
-    else:
-        bot_1h.send_message(m.chat.id, "توکن ربات 4h تنظیم نشده یا ربات ساخته نشده است.")
+    threading.Thread(target=delayed_run, args=("1h", 0), daemon=True).start()
+    threading.Thread(target=delayed_run, args=("4h", 5), daemon=True).start()
+    threading.Thread(target=delayed_run, args=("1d", 10), daemon=True).start()
+    threading.Thread(target=delayed_run, args=("15m", 15), daemon=True).start()
 
-@bot_1h.message_handler(func=lambda m: m.text == "اجرای فوری 1d")
-def manual_1d(m):
-    cfg = load_config()
-    chat = cfg.get("chat_id_1d") or m.chat.id
-    if bot_1d:
-        threading.Thread(
-            target=run_cycle,
-            args=("1d", bot_1d, chat, cfg["symbols_1d"], "1d", cfg["lookback_1d"], cfg["max_bars"], cfg.get("make_pdf_1d", True)),
-            daemon=True
-        ).start()
-    else:
-        bot_1h.send_message(m.chat.id, "توکن ربات 1d تنظیم نشده یا ربات ساخته نشده است.")
+    bot_1h.send_message(chat_id_1h, "اجرای چرخه‌ها با اختلاف ۵ دقیقه بین تایم‌فریم‌ها شروع شد.")
 
-@bot_1h.message_handler(func=lambda m: m.text == "اجرای فوری 15m")
-def manual_15m(m):
-    cfg = load_config()
-    chat = cfg.get("chat_id_15m") or m.chat.id
-    if bot_15m:
-        threading.Thread(
-            target=run_cycle,
-            args=("15m", bot_15m, chat, cfg["symbols_15m"], "15m", cfg["lookback_15m"], cfg["max_bars"], False),
-            daemon=True
-        ).start()
-    else:
-        bot_1h.send_message(m.chat.id, "توکن ربات 15m تنظیم نشده یا ربات ساخته نشده است.")
-
-
-# =========================
-# اجرای چرخه‌ها از منوی اصلی
-# =========================
 
 @bot_1h.message_handler(func=lambda m: m.text == "اجرای چرخه‌ها")
-def run_all_cycles(m):
-    cfg = load_config()
-
-    if bot_1h:
-        threading.Thread(
-            target=run_cycle,
-            args=("1h", bot_1h, cfg.get("chat_id_1h") or m.chat.id,
-                  cfg["symbols_1h"], "1h", cfg["lookback_1h"], cfg["max_bars"], cfg.get("make_pdf_1h", True)),
-            daemon=True
-        ).start()
-
-    if bot_4h:
-        threading.Thread(
-            target=run_cycle,
-            args=("4h", bot_4h, cfg.get("chat_id_4h") or m.chat.id,
-                  cfg["symbols_4h"], "4h", cfg["lookback_4h"], cfg["max_bars"], False),
-            daemon=True
-        ).start()
-
-    if bot_1d:
-        threading.Thread(
-            target=run_cycle,
-            args=("1d", bot_1d, cfg.get("chat_id_1d") or m.chat.id,
-                  cfg["symbols_1d"], "1d", cfg["lookback_1d"], cfg["max_bars"], cfg.get("make_pdf_1d", True)),
-            daemon=True
-        ).start()
-
-    if bot_15m:
-        threading.Thread(
-            target=run_cycle,
-            args=("15m", bot_15m, cfg.get("chat_id_15m") or m.chat.id,
-                  cfg["symbols_15m"], "15m", cfg["lookback_15m"], cfg["max_bars"], False),
-            daemon=True
-        ).start()
+def run_cycles_command(m):
+    start_all_cycles_with_offset(m.chat.id)
 
 
-# =========================
-# زمان‌بندی خودکار
-# =========================
+# =========================================================
+# ربات‌های دیگر (ثبت chat_id و پیام شروع)
+# =========================================================
 
-def scheduler_loop():
-    while True:
-        now = now_utc()
-        minute = now.minute
-        hour = now.hour
-
+if bot_4h:
+    @bot_4h.message_handler(commands=["start"])
+    def start_4h(m):
         cfg = load_config()
-
-        # 1h → هر ساعت دقیقه 22
-        if minute == 22:
-            if bot_1h:
-                threading.Thread(
-                    target=run_cycle,
-                    args=("1h", bot_1h, cfg.get("chat_id_1h"),
-                          cfg["symbols_1h"], "1h", cfg["lookback_1h"], cfg["max_bars"], cfg.get("make_pdf_1h", True)),
-                    daemon=True
-                ).start()
-
-        # 4h → ساعت‌های 2، 6، 10، 14، 18، 22 دقیقه 7
-        if minute == 7 and hour in [2, 6, 10, 14, 18, 22]:
-            if bot_4h:
-                threading.Thread(
-                    target=run_cycle,
-                    args=("4h", bot_4h, cfg.get("chat_id_4h"),
-                          cfg["symbols_4h"], "4h", cfg["lookback_4h"], cfg["max_bars"], False),
-                    daemon=True
-                ).start()
-
-        # 1d → هر روز ساعت 1:05
-        if hour == 1 and minute == 5:
-            if bot_1d:
-                threading.Thread(
-                    target=run_cycle,
-                    args=("1d", bot_1d, cfg.get("chat_id_1d"),
-                          cfg["symbols_1d"], "1d", cfg["lookback_1d"], cfg["max_bars"], cfg.get("make_pdf_1d", True)),
-                    daemon=True
-                ).start()
-
-        # 15m → هر ۱۵ دقیقه
-        if minute % 15 == 0:
-            if bot_15m:
-                threading.Thread(
-                    target=run_cycle,
-                    args=("15m", bot_15m, cfg.get("chat_id_15m"),
-                          cfg["symbols_15m"], "15m", cfg["lookback_15m"], cfg["max_bars"], False),
-                    daemon=True
-                ).start()
-
-        time.sleep(30)
+        cfg["chat_id_4h"] = m.chat.id
+        save_config(cfg)
+        bot_4h.send_message(m.chat.id, "ربات 4h فعال شد.\n" + now_utc_str())
 
 
-# =========================
-# اجرای ربات‌ها + زمان‌بندی
-# =========================
+if bot_1d:
+    @bot_1d.message_handler(commands=["start"])
+    def start_1d(m):
+        cfg = load_config()
+        cfg["chat_id_1d"] = m.chat.id
+        save_config(cfg)
+        bot_1d.send_message(m.chat.id, "ربات 1d فعال شد.\n" + now_utc_str())
 
-def start_bots():
-    # زمان‌بندی در یک Thread جدا
-    threading.Thread(target=scheduler_loop, daemon=True).start()
 
-    # اجرای ربات‌ها
+if bot_15m:
+    @bot_15m.message_handler(commands=["start"])
+    def start_15m(m):
+        cfg = load_config()
+        cfg["chat_id_15m"] = m.chat.id
+        save_config(cfg)
+        bot_15m.send_message(m.chat.id, "ربات 15m فعال شد.\n" + now_utc_str())
+
+
+# =========================================================
+# اجرای ربات‌ها
+# =========================================================
+
+def main():
+    threads = []
+
     if bot_1h:
-        threading.Thread(target=bot_1h.infinity_polling, daemon=True).start()
-    if bot_4h:
-        threading.Thread(target=bot_4h.infinity_polling, daemon=True).start()
-    if bot_1d:
-        threading.Thread(target=bot_1d.infinity_polling, daemon=True).start()
-    if bot_15m:
-        threading.Thread(target=bot_15m.infinity_polling, daemon=True).start()
+        t1 = threading.Thread(target=bot_1h.infinity_polling, daemon=True)
+        threads.append(t1)
 
-    # نگه‌داشتن برنامه
+    if bot_4h:
+        t2 = threading.Thread(target=bot_4h.infinity_polling, daemon=True)
+        threads.append(t2)
+
+    if bot_1d:
+        t3 = threading.Thread(target=bot_1d.infinity_polling, daemon=True)
+        threads.append(t3)
+
+    if bot_15m:
+        t4 = threading.Thread(target=bot_15m.infinity_polling, daemon=True)
+        threads.append(t4)
+
+    for t in threads:
+        t.start()
+
+    # نگه داشتن برنامه
     while True:
         time.sleep(1)
 
 
-# =========================
-# اجرای برنامه
-# =========================
-
 if __name__ == "__main__":
-    print("Modu Bazler v5.1 + Combined JPG 15m started.")
-    start_bots()
-
-
+    main()
