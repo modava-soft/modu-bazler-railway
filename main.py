@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+from PIL import Image
 import telebot
 from telebot import types
 
@@ -69,6 +70,8 @@ DEFAULT_CONFIG = {
 
     "make_pdf_1h": True,
     "make_pdf_1d": True,
+
+    "make_combined_15m": True,
 
     "chat_id_1h": None,
     "chat_id_4h": None,
@@ -137,7 +140,6 @@ LAST_ALARMS = {
     "15m": []
 }
 
-# قفل‌ها برای جلوگیری از اجرای هم‌زمان سیکل‌ها
 CYCLE_LOCKS = {
     "1h": threading.Lock(),
     "4h": threading.Lock(),
@@ -218,7 +220,7 @@ def refresh_main(m):
     send_main_menu(m.chat.id)
 
 # =========================
-# استارت سایر ربات‌ها (ثبت chat_id)
+# استارت سایر ربات‌ها
 # =========================
 
 if bot_4h:
@@ -401,6 +403,7 @@ def system_status(m):
     txt += f"نمادهای 15m: {len(cfg['symbols_15m'])}\n"
     txt += f"PDF 1h: {'ON' if cfg['make_pdf_1h'] else 'OFF'}\n"
     txt += f"PDF 1d: {'ON' if cfg['make_pdf_1d'] else 'OFF'}\n"
+    txt += f"Combined 15m: {'ON' if cfg.get('make_combined_15m', True) else 'OFF'}\n"
     txt += f"verbose 1h: {'ON' if cfg['verbose_1h'] else 'OFF'}\n"
     txt += f"verbose 4h: {'ON' if cfg['verbose_4h'] else 'OFF'}\n"
     txt += f"verbose 1d: {'ON' if cfg['verbose_1d'] else 'OFF'}\n"
@@ -413,6 +416,7 @@ def advanced_settings(m):
     kb = types.InlineKeyboardMarkup()
     kb.add(types.InlineKeyboardButton(f"PDF 1h ({'ON' if cfg['make_pdf_1h'] else 'OFF'})", callback_data="adv_pdf_1h"))
     kb.add(types.InlineKeyboardButton(f"PDF 1d ({'ON' if cfg['make_pdf_1d'] else 'OFF'})", callback_data="adv_pdf_1d"))
+    kb.add(types.InlineKeyboardButton(f"Combined 15m ({'ON' if cfg.get('make_combined_15m', True) else 'OFF'})", callback_data="adv_combined_15m"))
     kb.add(types.InlineKeyboardButton(f"verbose 1h ({'ON' if cfg['verbose_1h'] else 'OFF'})", callback_data="adv_verbose_1h"))
     kb.add(types.InlineKeyboardButton(f"verbose 4h ({'ON' if cfg['verbose_4h'] else 'OFF'})", callback_data="adv_verbose_4h"))
     kb.add(types.InlineKeyboardButton(f"verbose 1d ({'ON' if cfg['verbose_1d'] else 'OFF'})", callback_data="adv_verbose_1d"))
@@ -427,6 +431,8 @@ def advanced_settings_handler(c):
         cfg["make_pdf_1h"] = not cfg["make_pdf_1h"]
     elif c.data == "adv_pdf_1d":
         cfg["make_pdf_1d"] = not cfg["make_pdf_1d"]
+    elif c.data == "adv_combined_15m":
+        cfg["make_combined_15m"] = not cfg.get("make_combined_15m", True)
     elif c.data == "adv_verbose_1h":
         cfg["verbose_1h"] = not cfg["verbose_1h"]
     elif c.data == "adv_verbose_4h":
@@ -615,6 +621,31 @@ def detect_alarms(cfg: dict, info: dict, group: str):
         }]
     return alarms
 
+def make_15m_combined_pages(jpg_paths: list) -> list:
+    pages = []
+    page_w, page_h = 1800, 1400
+    cell_w, cell_h = page_w // 4, page_h // 3
+
+    for i in range(0, len(jpg_paths), 12):
+        chunk = jpg_paths[i:i+12]
+        page = Image.new("RGB", (page_w, page_h), (255, 255, 255))
+        idx = 0
+        for r in range(3):
+            for c in range(4):
+                if idx < len(chunk):
+                    img = Image.open(chunk[idx]).convert("RGB")
+                    img = img.resize((cell_w, cell_h), Image.LANCZOS)
+                    x = c * cell_w
+                    y = r * cell_h
+                    page.paste(img, (x, y))
+                    idx += 1
+        out_name = f"15m_combined_{i//12 + 1}.jpg"
+        out_path = os.path.join(CHARTS_DIR, out_name)
+        page.save(out_path, format="JPEG", quality=95)
+        pages.append(out_path)
+
+    return pages
+
 # =========================
 # اجرای سیکل‌ها با قفل (verbose ON/OFF)
 # =========================
@@ -624,52 +655,85 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str, lookb
     if lock is None:
         return
     if not lock.acquire(blocking=False):
-        # اگر سیکل قبلی هنوز در حال اجراست، سیکل جدید را نادیده بگیر
         return
+
+    combined_jpgs = []   # برای ساخت صفحات ۱۲تایی سیکل 15m
+
     try:
         cfg = load_config()
         verbose = cfg.get(f"verbose_{group}", True)
+
         if chat_id is None:
             return
+
         if verbose:
             bot.send_message(chat_id, f"شروع چرخه {group}\n{now_utc_str()} UTC")
+
         unique_symbols = list(dict.fromkeys(symbols))
         total = len(unique_symbols)
         processed = 0
         batch_size = cfg.get("cycle_progress_batch", 5)
+
         pdf = None
         pdf_filename = None
-        if make_pdf and group in ["1h","1d"]:
+
+        if make_pdf and group in ["1h", "1d"]:
             pdf_filename = os.path.join(PDF_DIR, f"{group}_{now_utc().strftime('%Y%m%d_%H%M%S')}.pdf")
             pdf = PdfPages(pdf_filename)
+
         for sym in unique_symbols:
             processed += 1
+
             if verbose and (processed % batch_size == 0 or processed == 1 or processed == total):
                 bot.send_message(chat_id, f"چرخه {group}: {processed}/{total} نماد، {total - processed} باقی مانده.")
+
             ts = now_utc().strftime("%Y%m%d_%H%M%S")
             png = f"{group}_{sym}_{ts}.png"
+
             info = create_plotly_chart(sym, interval, lookback_days, max_bars, png)
             alarms = detect_alarms(cfg, info, group)
+
+            # ذخیره JPG برای سیکل 15m
+            if group == "15m":
+                try:
+                    img = Image.open(info["png_path"]).convert("RGB")
+                    jpg_name = os.path.splitext(os.path.basename(info["png_path"]))[0] + ".jpg"
+                    jpg_path = os.path.join(CHARTS_DIR, jpg_name)
+                    img.save(jpg_path, format="JPEG", quality=95)
+                    combined_jpgs.append(jpg_path)
+                except:
+                    pass
+
+            # ارسال نمودار به ربات
             if verbose or alarms:
                 caption = f"{sym} ({group})"
                 if alarms:
                     caption += "\n" + "\n".join(alarms)
                 else:
                     caption += " – بدون آلارم"
+
                 try:
                     with open(info["png_path"], "rb") as f:
                         bot.send_photo(chat_id, f, caption=caption)
                 except:
                     pass
+
+            # افزودن به PDF
             if pdf is not None:
                 try:
                     img = plt.imread(info["png_path"])
-                    fig, ax = plt.subplots(figsize=(10,6))
-                    ax.imshow(img); ax.axis("off"); ax.set_title(f"{sym} – {group}")
-                    pdf.savefig(fig); plt.close(fig)
+                    fig, ax = plt.subplots(figsize=(10, 6))
+                    ax.imshow(img)
+                    ax.axis("off")
+                    ax.set_title(f"{sym} – {group}")
+                    pdf.savefig(fig)
+                    plt.close(fig)
                 except:
                     pass
+
             time.sleep(0.3)
+
+        # بستن PDF و ارسال
         if pdf is not None:
             try:
                 pdf.close()
@@ -677,8 +741,22 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str, lookb
                     bot.send_document(chat_id, f, caption=f"گزارش PDF کامل سیکل {group}")
             except:
                 pass
+
+        # ساخت صفحات ۱۲تایی JPG برای سیکل 15m
+        if group == "15m":
+            cfg = load_config()
+            if cfg.get("make_combined_15m", True) and combined_jpgs:
+                pages = make_15m_combined_pages(combined_jpgs)
+                for p in pages:
+                    try:
+                        with open(p, "rb") as f:
+                            bot.send_photo(chat_id, f, caption="صفحهٔ تجمیعی ۱۲ نموداری 15m")
+                    except:
+                        pass
+
         if verbose:
             bot.send_message(chat_id, f"پایان چرخه {group}")
+
     finally:
         lock.release()
 
@@ -751,107 +829,115 @@ def manual_15m(m):
             args=("15m", bot_15m, chat, cfg["symbols_15m"], "15m", cfg["lookback_15m"], cfg["max_bars"], False),
             daemon=True
         ).start()
-        bot_1h.send_message(m.chat.id, "اجرای فوری چرخه 15m شروع شد.")
     else:
         bot_1h.send_message(m.chat.id, "توکن ربات 15m تنظیم نشده یا ربات ساخته نشده است.")
 
+
 # =========================
-# دکمه اجرای چرخه‌ها (همه‌ی تایم‌فریم‌ها)
+# اجرای چرخه‌ها از منوی اصلی
 # =========================
 
 @bot_1h.message_handler(func=lambda m: m.text == "اجرای چرخه‌ها")
 def run_all_cycles(m):
     cfg = load_config()
-    if cfg.get("chat_id_1h"):
-        threading.Thread(target=run_cycle, args=("1h", bot_1h, cfg["chat_id_1h"], cfg["symbols_1h"], "1h", cfg["lookback_1h"], cfg["max_bars"], cfg.get("make_pdf_1h", True)), daemon=True).start()
-    if cfg.get("chat_id_4h") and bot_4h:
-        threading.Thread(target=run_cycle, args=("4h", bot_4h, cfg["chat_id_4h"], cfg["symbols_4h"], "4h", cfg["lookback_4h"], cfg["max_bars"], False), daemon=True).start()
-    if cfg.get("chat_id_1d") and bot_1d:
-        threading.Thread(target=run_cycle, args=("1d", bot_1d, cfg["chat_id_1d"], cfg["symbols_1d"], "1d", cfg["lookback_1d"], cfg["max_bars"], cfg.get("make_pdf_1d", True)), daemon=True).start()
-    if cfg.get("chat_id_15m") and bot_15m:
-        threading.Thread(target=run_cycle, args=("15m", bot_15m, cfg["chat_id_15m"], cfg["symbols_15m"], "15m", cfg["lookback_15m"], cfg["max_bars"], False), daemon=True).start()
-    bot_1h.send_message(m.chat.id, "اجرای چرخه‌ها برای همه‌ی تایم‌فریم‌ها شروع شد.")
+
+    if bot_1h:
+        threading.Thread(
+            target=run_cycle,
+            args=("1h", bot_1h, cfg.get("chat_id_1h") or m.chat.id,
+                  cfg["symbols_1h"], "1h", cfg["lookback_1h"], cfg["max_bars"], cfg.get("make_pdf_1h", True)),
+            daemon=True
+        ).start()
+
+    if bot_4h:
+        threading.Thread(
+            target=run_cycle,
+            args=("4h", bot_4h, cfg.get("chat_id_4h") or m.chat.id,
+                  cfg["symbols_4h"], "4h", cfg["lookback_4h"], cfg["max_bars"], False),
+            daemon=True
+        ).start()
+
+    if bot_1d:
+        threading.Thread(
+            target=run_cycle,
+            args=("1d", bot_1d, cfg.get("chat_id_1d") or m.chat.id,
+                  cfg["symbols_1d"], "1d", cfg["lookback_1d"], cfg["max_bars"], cfg.get("make_pdf_1d", True)),
+            daemon=True
+        ).start()
+
+    if bot_15m:
+        threading.Thread(
+            target=run_cycle,
+            args=("15m", bot_15m, cfg.get("chat_id_15m") or m.chat.id,
+                  cfg["symbols_15m"], "15m", cfg["lookback_15m"], cfg["max_bars"], False),
+            daemon=True
+        ).start()
+
 
 # =========================
-# زمان‌بندی خودکار پایدار
+# زمان‌بندی خودکار
 # =========================
 
 def scheduler_loop():
-    last_run = {
-        "1h": None,
-        "4h": None,
-        "1d": None,
-        "15m": None
-    }
     while True:
-        try:
-            cfg = load_config()
-            now = now_utc()
-            minute = now.minute
-            second = now.second
-            hour   = now.hour
+        now = now_utc()
+        minute = now.minute
+        hour = now.hour
 
-            # پنجره‌ی ۲۰ ثانیه‌ای برای هر تریگر تا از دست نرود
-            def should_run(key, window_sec=20):
-                lr = last_run[key]
-                if lr is None:
-                    return True
-                return (now - lr).total_seconds() > window_sec
+        cfg = load_config()
 
-            # 1h – هر ساعت در دقیقه 22
-            if minute == 22 and second < 20 and should_run("1h"):
-                if bot_1h and cfg.get("chat_id_1h"):
-                    threading.Thread(
-                        target=run_cycle,
-                        args=("1h", bot_1h, cfg["chat_id_1h"], cfg["symbols_1h"], "1h", cfg["lookback_1h"], cfg["max_bars"], cfg.get("make_pdf_1h", True)),
-                        daemon=True
-                    ).start()
-                    last_run["1h"] = now
+        # 1h → هر ساعت دقیقه 22
+        if minute == 22:
+            if bot_1h:
+                threading.Thread(
+                    target=run_cycle,
+                    args=("1h", bot_1h, cfg.get("chat_id_1h"),
+                          cfg["symbols_1h"], "1h", cfg["lookback_1h"], cfg["max_bars"], cfg.get("make_pdf_1h", True)),
+                    daemon=True
+                ).start()
 
-            # 4h – در ساعات 2، 6، 10، 14، 18، 22 (دقیقه 7)
-            if minute == 7 and second < 20 and hour in [2,6,10,14,18,22] and should_run("4h"):
-                if bot_4h and cfg.get("chat_id_4h"):
-                    threading.Thread(
-                        target=run_cycle,
-                        args=("4h", bot_4h, cfg["chat_id_4h"], cfg["symbols_4h"], "4h", cfg["lookback_4h"], cfg["max_bars"], False),
-                        daemon=True
-                    ).start()
-                    last_run["4h"] = now
+        # 4h → ساعت‌های 2، 6، 10، 14، 18، 22 دقیقه 7
+        if minute == 7 and hour in [2, 6, 10, 14, 18, 22]:
+            if bot_4h:
+                threading.Thread(
+                    target=run_cycle,
+                    args=("4h", bot_4h, cfg.get("chat_id_4h"),
+                          cfg["symbols_4h"], "4h", cfg["lookback_4h"], cfg["max_bars"], False),
+                    daemon=True
+                ).start()
 
-            # 1d – هر روز ساعت 1:05
-            if hour == 1 and minute == 5 and second < 20 and should_run("1d", window_sec=3600):
-                if bot_1d and cfg.get("chat_id_1d"):
-                    threading.Thread(
-                        target=run_cycle,
-                        args=("1d", bot_1d, cfg["chat_id_1d"], cfg["symbols_1d"], "1d", cfg["lookback_1d"], cfg["max_bars"], cfg.get("make_pdf_1d", True)),
-                        daemon=True
-                    ).start()
-                    last_run["1d"] = now
+        # 1d → هر روز ساعت 1:05
+        if hour == 1 and minute == 5:
+            if bot_1d:
+                threading.Thread(
+                    target=run_cycle,
+                    args=("1d", bot_1d, cfg.get("chat_id_1d"),
+                          cfg["symbols_1d"], "1d", cfg["lookback_1d"], cfg["max_bars"], cfg.get("make_pdf_1d", True)),
+                    daemon=True
+                ).start()
 
-            # 15m – هر ۱۵ دقیقه
-            if minute % 15 == 0 and second < 20 and should_run("15m"):
-                if bot_15m and cfg.get("chat_id_15m"):
-                    threading.Thread(
-                        target=run_cycle,
-                        args=("15m", bot_15m, cfg["chat_id_15m"], cfg["symbols_15m"], "15m", cfg["lookback_15m"], cfg["max_bars"], False),
-                        daemon=True
-                    ).start()
-                    last_run["15m"] = now
+        # 15m → هر ۱۵ دقیقه
+        if minute % 15 == 0:
+            if bot_15m:
+                threading.Thread(
+                    target=run_cycle,
+                    args=("15m", bot_15m, cfg.get("chat_id_15m"),
+                          cfg["symbols_15m"], "15m", cfg["lookback_15m"], cfg["max_bars"], False),
+                    daemon=True
+                ).start()
 
-            time.sleep(5)
-        except:
-            time.sleep(10)
+        time.sleep(30)
+
 
 # =========================
-# راه‌اندازی نهایی
+# اجرای ربات‌ها + زمان‌بندی
 # =========================
 
-if __name__ == "__main__":
-    if ADMIN_CHAT and bot_1h:
-        try:
-            bot_1h.send_message(ADMIN_CHAT, "Modu Bazler v5.1 – ربات اصلی راه‌اندازی شد.")
-        except:
-            pass
+def start_bots():
+    # زمان‌بندی در یک Thread جدا
+    threading.Thread(target=scheduler_loop, daemon=True).start()
+
+    # اجرای ربات‌ها
     if bot_1h:
         threading.Thread(target=bot_1h.infinity_polling, daemon=True).start()
     if bot_4h:
@@ -860,6 +946,18 @@ if __name__ == "__main__":
         threading.Thread(target=bot_1d.infinity_polling, daemon=True).start()
     if bot_15m:
         threading.Thread(target=bot_15m.infinity_polling, daemon=True).start()
-    threading.Thread(target=scheduler_loop, daemon=True).start()
+
+    # نگه‌داشتن برنامه
     while True:
-        time.sleep(60)
+        time.sleep(1)
+
+
+# =========================
+# اجرای برنامه
+# =========================
+
+if __name__ == "__main__":
+    print("Modu Bazler v5.1 + Combined JPG 15m started.")
+    start_bots()
+
+
