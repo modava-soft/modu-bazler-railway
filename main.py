@@ -615,8 +615,7 @@ def run_cycle(group: str):
         # برای سادگی، فقط یک پیام تست می‌فرستیم
         bot_1h.send_message(
             chat_id,
-            f"شروع سیکل {group} با {len(symbols)} ارز و {candles} کندل.\nزمان: {now_utc_str()}"
-        )
+            f"شروع سیکل {group} با {len(symbols)} ارز و {candles} کندل.\nزمان: {now_utc_str()}")
 
         # مثال: ساخت چارت‌ها و ذخیره JPG
         if cfg["save_jpg_enabled"]:
