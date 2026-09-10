@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Modu Bazler v5.2 – نسخه‌ی پایدار، کامل و بدون خطای سینتکسی
+# Modu Bazler v5.2 – نسخه‌ی پایدار با تضمین اجرای سیکل‌ها و تنظیم کندل‌ها
 
 import os, json, time, threading, datetime as dt
 import requests, numpy as np, pandas as pd
@@ -54,19 +54,15 @@ DEFAULT_CONFIG = {
         "RUNEUSDT","RAYUSDT","LDOUSDT","COMPUSDT","CRVUSDT","MKRUSDT","SNXUSDT","GMXUSDT","DYDXUSDT","ENSUSDT"
     ],
 
-    # تعداد کندل‌ها (مضربی از 20) – پیش‌فرض‌ها طبق خواسته‌ی تو
-    "candles_1h": 80,   # 1h → 80
-    "candles_4h": 60,   # 4h → 60
-    "candles_1d": 60,   # 1d → 60
-    "candles_15m": 40,  # 15m → 40
+    # تعداد کندل نمایش (مضربی از ۲۰)
+    "max_bars_1h": 80,   # پیش‌فرض ۸۰
+    "max_bars_4h": 60,   # پیش‌فرض ۶۰
+    "max_bars_1d": 60,   # پیش‌فرض ۶۰
+    "max_bars_15m": 40,  # پیش‌فرض ۴۰
 
-    # گزارش‌ها (پیش‌فرض 15)
-    "reports_default": 15,
+    # تعداد کندل برای محاسبات SMA/WMA/RSI/MACD (ثابت ۵۰۰)
+    "calc_bars": 500,
 
-    # حداکثر بار برای دریافت دیتا
-    "max_bars": 300,
-
-    # آلارم‌ها
     "alarm_wma_direction": True,
     "alarm_cross_sma20": False,
     "alarm_cross_sma100": False,
@@ -75,25 +71,22 @@ DEFAULT_CONFIG = {
     "alarm_sma100_direction": False,
     "alarm_sma200_direction": False,
 
-    # PDF و ترکیبی
     "make_pdf_1h": True,
     "make_pdf_1d": True,
     "make_combined_15m": True,
 
-    # چت‌ها
     "chat_id_1h": None,
     "chat_id_4h": None,
     "chat_id_1d": None,
     "chat_id_15m": None,
 
-    # verbose
     "verbose_1h": True,
     "verbose_4h": True,
     "verbose_1d": True,
     "verbose_15m": True,
 
-    # تعداد نماد برای گزارش پیشرفت
-    "cycle_progress_batch": 5
+    # پیش‌فرض گزارشات
+    "cycle_progress_batch": 15
 }
 
 def save_config(cfg: dict):
@@ -157,8 +150,12 @@ CYCLE_LOCKS = {
     "15m": threading.Lock()
 }
 
+# =========================
+# راهنما
+# =========================
+
 HELP_TEXT = """
-Modu Bazler v5.2 – نسخه‌ی پایدار و کامل
+Modu Bazler v5.2 – نسخه‌ی پایدار
 
 📌 ربات‌ها:
 - 1h: ربات اصلی مدیریت و منو
@@ -170,24 +167,29 @@ Modu Bazler v5.2 – نسخه‌ی پایدار و کامل
 - در هر ربات دستور /start را بفرست تا chat_id ثبت شود.
 
 🧭 منوی ربات 1h:
-- چک یک نماد → بررسی پیشرفته یک نماد در 1h (اجرای فوری تک نماد)
+- چک یک نماد → بررسی پیشرفته یک نماد در 1h
 - اجرای دستی 1h → اجرای کامل سیکل 1h
-- اجرای فوری 4h / 1d / 15m → اجرای فوری سیکل همان تایم‌فریم
-- اجرای چرخه‌ها → اجرای فوری همه‌ی تایم‌فریم‌ها با فاصله‌ی ۵ دقیقه
-- مدیریت نمادهای 1h / 4h / 1d / 15m → افزودن/حذف/نمایش نمادها
+- اجرای فوری 4h / 1d / 15m → اجرای فوری سیکل هر تایم‌فریم
+- اجرای چرخه‌ها → اجرای همه سیکل‌ها با فاصله ۵ دقیقه
+- مدیریت نمادهای 1h / 4h / 1d / 15m → افزودن/حذف نمادها
 - تنظیم آلارم‌ها → فعال/غیرفعال کردن انواع آلارم‌ها
-- پاک کردن آلارم‌ها → پاک کردن لیست آلارم‌های ذخیره شده
-- گزارش آلارم‌ها → نمایش آخرین آلارم‌های هر گروه
+- گزارش آلارم‌ها → نمایش آخرین آلارم‌ها
+- پاک کردن آلارم‌ها → خالی کردن لیست آلارم‌ها
+- تنظیمات کندل‌ها → تنظیم تعداد کندل نمایش (مضربی از ۲۰)
 - وضعیت سیستم → نمایش تنظیمات و تعداد نمادها
-- تنظیمات پیشرفته → کنترل PDF، verbose و تعداد کندل‌ها (مضربی از ۲۰)
-- ریست برنامه → پاک کردن همه تنظیمات و آلارم‌ها و بازگشت به پیش‌فرض‌ها
+- تنظیمات پیشرفته → کنترل PDF و verbose
+- ریست برنامه → پاک‌سازی کامل و بازگشت به تنظیمات اولیه
+- راهنما / رفرش منو → نمایش راهنما و منوی اصلی
 
 🔊 حالت پردازش (verbose):
 - ON → پیام‌های پردازش + نمودار همه‌ی نمادها
-- OFF → فقط نمودار نمادهای دارای آلارم، بدون پیام‌های میانی
+- OFF → فقط نمودار نمادهای دارای آلارم
 
 📄 PDF:
 - برای سیکل‌های 1h و 1d در صورت فعال بودن، یک فایل PDF از همه‌ی نمودارها ساخته و ارسال می‌شود.
+
+⏱ اجرای چرخه‌ها:
+- اجرای چرخه‌ها در منوی اصلی → اجرای 1h، سپس 4h، سپس 1d، سپس 15m با فاصله ۵ دقیقه بین هر سیکل.
 """
 
 # =========================
@@ -202,8 +204,9 @@ def send_main_menu(chat_id):
     kb.row("اجرای چرخه‌ها")
     kb.row("مدیریت نمادهای 1h", "مدیریت نمادهای 4h")
     kb.row("مدیریت نمادهای 1d", "مدیریت نمادهای 15m")
-    kb.row("تنظیم آلارم‌ها", "پاک کردن آلارم‌ها")
-    kb.row("گزارش آلارم‌ها", "وضعیت سیستم")
+    kb.row("تنظیم آلارم‌ها", "گزارش آلارم‌ها")
+    kb.row("پاک کردن آلارم‌ها")
+    kb.row("تنظیمات کندل‌ها", "وضعیت سیستم")
     kb.row("تنظیمات پیشرفته", "ریست برنامه")
     kb.row("راهنما", "رفرش منو")
     bot_1h.send_message(chat_id, "منوی اصلی:", reply_markup=kb)
@@ -250,20 +253,18 @@ if bot_15m:
         bot_15m.send_message(m.chat.id, "ربات ۱۵دقیقه‌ای فعال شد.\n" + now_utc_str())
 
 # =========================
-# ریست برنامه (پاک کردن همه چیز)
+# ریست برنامه
 # =========================
 
 @bot_1h.message_handler(func=lambda m: m.text == "ریست برنامه")
 def reset_app(m):
     cfg = reset_config()
     cfg["chat_id_1h"] = m.chat.id
-    cfg["chat_id_4h"] = None
-    cfg["chat_id_1d"] = None
-    cfg["chat_id_15m"] = None
     save_config(cfg)
-    for k in LAST_ALARMS:
-        LAST_ALARMS[k] = []
-    bot_1h.send_message(m.chat.id, "برنامه و تنظیمات کامل ریست شد. همه آلارم‌ها پاک شدند.")
+    # پاک کردن آلارم‌ها
+    for g in LAST_ALARMS:
+        LAST_ALARMS[g] = []
+    bot_1h.send_message(m.chat.id, "برنامه و تنظیمات کامل ریست شد.\nهمه آلارم‌ها پاک شدند.")
     send_main_menu(m.chat.id)
 
 # =========================
@@ -271,7 +272,7 @@ def reset_app(m):
 # =========================
 
 def get_symbols(cfg, group):
-    return cfg.get(f"symbols_{group}", [])
+    return cfg[f"symbols_{group}"]
 
 def set_symbols(cfg, group, symbols):
     cfg[f"symbols_{group}"] = symbols
@@ -306,9 +307,6 @@ def back_to_main(m):
 
 def add_symbol_step(m, group):
     symbol = m.text.strip().upper()
-    if symbol == "بازگشت به منوی اصلی":
-        send_main_menu(m.chat.id)
-        return
     cfg = load_config()
     symbols = get_symbols(cfg, group)
     if symbol not in symbols:
@@ -322,14 +320,11 @@ def add_symbol_step(m, group):
 @bot_1h.message_handler(func=lambda m: m.text.startswith("افزودن نماد به "))
 def add_symbol_any(m):
     group = m.text.split()[-1]
-    msg = bot_1h.send_message(m.chat.id, "نماد را وارد کنید (یا 'بازگشت به منوی اصلی'):")
+    msg = bot_1h.send_message(m.chat.id, "نماد را وارد کنید:")
     bot_1h.register_next_step_handler(msg, lambda mm: add_symbol_step(mm, group))
 
 def remove_symbol_step(m, group):
     symbol = m.text.strip().upper()
-    if symbol == "بازگشت به منوی اصلی":
-        send_main_menu(m.chat.id)
-        return
     cfg = load_config()
     symbols = get_symbols(cfg, group)
     if symbol in symbols:
@@ -343,7 +338,7 @@ def remove_symbol_step(m, group):
 @bot_1h.message_handler(func=lambda m: m.text.startswith("حذف نماد از "))
 def remove_symbol_any(m):
     group = m.text.split()[-1]
-    msg = bot_1h.send_message(m.chat.id, "نماد مورد نظر را وارد کنید (یا 'بازگشت به منوی اصلی'):")
+    msg = bot_1h.send_message(m.chat.id, "نماد مورد نظر را وارد کنید:")
     bot_1h.register_next_step_handler(msg, lambda mm: remove_symbol_step(mm, group))
 
 @bot_1h.message_handler(func=lambda m: m.text.startswith("نمایش نمادهای "))
@@ -356,7 +351,7 @@ def show_symbols_any(m):
     bot_1h.send_message(m.chat.id, txt)
 
 # =========================
-# تنظیم آلارم‌ها و پاک کردن آلارم‌ها
+# تنظیم آلارم‌ها
 # =========================
 
 @bot_1h.message_handler(func=lambda m: m.text == "تنظیم آلارم‌ها")
@@ -387,12 +382,6 @@ def toggle_alarm(c):
     bot_1h.answer_callback_query(c.id, f"{key} -> {'ON' if cfg[key] else 'OFF'}")
     alarms_menu(c.message)
 
-@bot_1h.message_handler(func=lambda m: m.text == "پاک کردن آلارم‌ها")
-def clear_alarms(m):
-    for k in LAST_ALARMS:
-        LAST_ALARMS[k] = []
-    bot_1h.send_message(m.chat.id, "همه آلارم‌ها پاک شدند.")
-
 @bot_1h.message_handler(func=lambda m: m.text == "گزارش آلارم‌ها")
 def alarms_report(m):
     txt = ""
@@ -408,8 +397,14 @@ def alarms_report(m):
         txt = "هیچ آلارمی ثبت نشده است."
     bot_1h.send_message(m.chat.id, txt)
 
+@bot_1h.message_handler(func=lambda m: m.text == "پاک کردن آلارم‌ها")
+def clear_alarms(m):
+    for g in LAST_ALARMS:
+        LAST_ALARMS[g] = []
+    bot_1h.send_message(m.chat.id, "همه آلارم‌ها پاک شدند.")
+
 # =========================
-# وضعیت سیستم و تنظیمات پیشرفته (شامل کندل‌ها)
+# وضعیت سیستم و تنظیمات پیشرفته
 # =========================
 
 @bot_1h.message_handler(func=lambda m: m.text == "وضعیت سیستم")
@@ -420,6 +415,11 @@ def system_status(m):
     txt += f"نمادهای 4h: {len(cfg['symbols_4h'])}\n"
     txt += f"نمادهای 1d: {len(cfg['symbols_1d'])}\n"
     txt += f"نمادهای 15m: {len(cfg['symbols_15m'])}\n"
+    txt += f"max_bars_1h: {cfg['max_bars_1h']}\n"
+    txt += f"max_bars_4h: {cfg['max_bars_4h']}\n"
+    txt += f"max_bars_1d: {cfg['max_bars_1d']}\n"
+    txt += f"max_bars_15m: {cfg['max_bars_15m']}\n"
+    txt += f"calc_bars (محاسبات): {cfg['calc_bars']}\n"
     txt += f"PDF 1h: {'ON' if cfg['make_pdf_1h'] else 'OFF'}\n"
     txt += f"PDF 1d: {'ON' if cfg['make_pdf_1d'] else 'OFF'}\n"
     txt += f"Combined 15m: {'ON' if cfg.get('make_combined_15m', True) else 'OFF'}\n"
@@ -427,11 +427,7 @@ def system_status(m):
     txt += f"verbose 4h: {'ON' if cfg['verbose_4h'] else 'OFF'}\n"
     txt += f"verbose 1d: {'ON' if cfg['verbose_1d'] else 'OFF'}\n"
     txt += f"verbose 15m: {'ON' if cfg['verbose_15m'] else 'OFF'}\n"
-    txt += f"candles 1h: {cfg['candles_1h']}\n"
-    txt += f"candles 4h: {cfg['candles_4h']}\n"
-    txt += f"candles 1d: {cfg['candles_1d']}\n"
-    txt += f"candles 15m: {cfg['candles_15m']}\n"
-    txt += f"reports_default: {cfg['reports_default']}\n"
+    txt += f"cycle_progress_batch: {cfg['cycle_progress_batch']}\n"
     bot_1h.send_message(m.chat.id, txt)
 
 @bot_1h.message_handler(func=lambda m: m.text == "تنظیمات پیشرفته")
@@ -445,89 +441,90 @@ def advanced_settings(m):
     kb.add(types.InlineKeyboardButton(f"verbose 4h ({'ON' if cfg['verbose_4h'] else 'OFF'})", callback_data="adv_verbose_4h"))
     kb.add(types.InlineKeyboardButton(f"verbose 1d ({'ON' if cfg['verbose_1d'] else 'OFF'})", callback_data="adv_verbose_1d"))
     kb.add(types.InlineKeyboardButton(f"verbose 15m ({'ON' if cfg['verbose_15m'] else 'OFF'})", callback_data="adv_verbose_15m"))
-    kb.add(types.InlineKeyboardButton(f"candles 1h ({cfg['candles_1h']})", callback_data="adv_candles_1h"))
-    kb.add(types.InlineKeyboardButton(f"candles 4h ({cfg['candles_4h']})", callback_data="adv_candles_4h"))
-    kb.add(types.InlineKeyboardButton(f"candles 1d ({cfg['candles_1d']})", callback_data="adv_candles_1d"))
-    kb.add(types.InlineKeyboardButton(f"candles 15m ({cfg['candles_15m']})", callback_data="adv_candles_15m"))
-    kb.add(types.InlineKeyboardButton(f"reports ({cfg['reports_default']})", callback_data="adv_reports"))
     kb.add(types.InlineKeyboardButton("ریست کامل برنامه", callback_data="adv_reset_app"))
     bot_1h.send_message(m.chat.id, "تنظیمات پیشرفته:", reply_markup=kb)
-
-def _set_candles_multiple(cfg, key, value):
-    try:
-        v = int(value)
-        if v <= 0 or v % 20 != 0:
-            return False
-        cfg[key] = v
-        save_config(cfg)
-        return True
-    except:
-        return False
 
 @bot_1h.callback_query_handler(func=lambda c: c.data.startswith("adv_"))
 def advanced_settings_handler(c):
     cfg = load_config()
-    data = c.data
-    if data == "adv_pdf_1h":
+    if c.data == "adv_pdf_1h":
         cfg["make_pdf_1h"] = not cfg["make_pdf_1h"]
-        save_config(cfg)
-    elif data == "adv_pdf_1d":
+    elif c.data == "adv_pdf_1d":
         cfg["make_pdf_1d"] = not cfg["make_pdf_1d"]
-        save_config(cfg)
-    elif data == "adv_combined_15m":
+    elif c.data == "adv_combined_15m":
         cfg["make_combined_15m"] = not cfg.get("make_combined_15m", True)
-        save_config(cfg)
-    elif data == "adv_verbose_1h":
+    elif c.data == "adv_verbose_1h":
         cfg["verbose_1h"] = not cfg["verbose_1h"]
-        save_config(cfg)
-    elif data == "adv_verbose_4h":
+    elif c.data == "adv_verbose_4h":
         cfg["verbose_4h"] = not cfg["verbose_4h"]
-        save_config(cfg)
-    elif data == "adv_verbose_1d":
+    elif c.data == "adv_verbose_1d":
         cfg["verbose_1d"] = not cfg["verbose_1d"]
-        save_config(cfg)
-    elif data == "adv_verbose_15m":
+    elif c.data == "adv_verbose_15m":
         cfg["verbose_15m"] = not cfg["verbose_15m"]
-        save_config(cfg)
-    elif data == "adv_reset_app":
+    elif c.data == "adv_reset_app":
         cfg = reset_config()
-        for k in LAST_ALARMS:
-            LAST_ALARMS[k] = []
-        save_config(cfg)
-    elif data in ["adv_candles_1h","adv_candles_4h","adv_candles_1d","adv_candles_15m","adv_reports"]:
-        key_map = {
-            "adv_candles_1h": "candles_1h",
-            "adv_candles_4h": "candles_4h",
-            "adv_candles_1d": "candles_1d",
-            "adv_candles_15m": "candles_15m",
-            "adv_reports": "reports_default"
-        }
-        key = key_map[data]
-        msg = bot_1h.send_message(c.message.chat.id, f"مقدار جدید برای {key} را وارد کن (مضربی از 20 برای candles):")
-        def _handler(mm):
-            val = mm.text.strip()
-            if key.startswith("candles_"):
-                ok = _set_candles_multiple(cfg, key, val)
-                if ok:
-                    bot_1h.send_message(mm.chat.id, f"{key} به {val} تغییر کرد.")
-                else:
-                    bot_1h.send_message(mm.chat.id, "مقدار نامعتبر است. باید مضربی از ۲۰ و بزرگ‌تر از صفر باشد.")
-            else:
-                try:
-                    v = int(val)
-                    if v <= 0:
-                        raise ValueError
-                    cfg[key] = v
-                    save_config(cfg)
-                    bot_1h.send_message(mm.chat.id, f"{key} به {v} تغییر کرد.")
-                except:
-                    bot_1h.send_message(mm.chat.id, "مقدار نامعتبر است.")
-            advanced_settings(mm)
-        bot_1h.register_next_step_handler(msg, _handler)
-        bot_1h.answer_callback_query(c.id, "در حال تنظیم مقدار جدید...")
-        return
+    save_config(cfg)
     bot_1h.answer_callback_query(c.id, "تنظیمات اعمال شد.")
     advanced_settings(c.message)
+
+# =========================
+# تنظیمات کندل‌ها (مضربی از ۲۰)
+# =========================
+
+@bot_1h.message_handler(func=lambda m: m.text == "تنظیمات کندل‌ها")
+def candle_settings_menu(m):
+    cfg = load_config()
+    txt = "تنظیمات تعداد کندل نمایش (مضربی از ۲۰):\n"
+    txt += f"1h: {cfg['max_bars_1h']}\n"
+    txt += f"4h: {cfg['max_bars_4h']}\n"
+    txt += f"1d: {cfg['max_bars_1d']}\n"
+    txt += f"15m: {cfg['max_bars_15m']}\n\n"
+    txt += "یک تایم‌فریم را انتخاب کنید:"
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    kb.row("کندل‌های 1h", "کندل‌های 4h")
+    kb.row("کندل‌های 1d", "کندل‌های 15m")
+    kb.row("بازگشت به منوی اصلی")
+    bot_1h.send_message(m.chat.id, txt, reply_markup=kb)
+
+def set_candles_for_group(m, group_key):
+    msg = bot_1h.send_message(m.chat.id, "تعداد کندل را وارد کنید (مضربی از ۲۰، مثلاً ۴۰، ۶۰، ۸۰):")
+    bot_1h.register_next_step_handler(msg, lambda mm: _candles_value_step(mm, group_key))
+
+def _candles_value_step(m, group_key):
+    val_text = m.text.strip()
+    try:
+        val = int(val_text)
+        if val <= 0 or val % 20 != 0:
+            raise ValueError
+    except:
+        bot_1h.send_message(m.chat.id, "عدد نامعتبر است. باید مضربی از ۲۰ و بزرگ‌تر از صفر باشد.")
+        candle_settings_menu(m)
+        return
+    cfg = load_config()
+    cfg[group_key] = val
+    save_config(cfg)
+    bot_1h.send_message(m.chat.id, f"تعداد کندل {group_key} روی {val} تنظیم شد.")
+    candle_settings_menu(m)
+
+@bot_1h.message_handler(func=lambda m: m.text == "کندل‌های 1h")
+def set_candles_1h(m):
+    set_candles_for_group(m, "max_bars_1h")
+
+@bot_1h.message_handler(func=lambda m: m.text == "کندل‌های 4h")
+def set_candles_4h(m):
+    set_candles_for_group(m, "max_bars_4h")
+
+@bot_1h.message_handler(func=lambda m: m.text == "کندل‌های 1d")
+def set_candles_1d(m):
+    set_candles_for_group(m, "max_bars_1d")
+
+@bot_1h.message_handler(func=lambda m: m.text == "کندل‌های 15m")
+def set_candles_15m(m):
+    set_candles_for_group(m, "max_bars_15m")
+
+# =========================
+# راهنما
+# =========================
 
 @bot_1h.message_handler(func=lambda m: m.text == "راهنما")
 def help_menu(m):
@@ -543,8 +540,8 @@ def _binance_interval(i: str) -> str:
 def _kucoin_interval(i: str) -> str:
     return {"1h": "1hour", "4h": "4hour", "1d": "1day", "15m": "15min"}[i]
 
-def fetch_ohlc(symbol: str, interval: str, max_bars: int) -> pd.DataFrame:
-    limit = max(200, max_bars)
+def fetch_ohlc(symbol: str, interval: str, calc_bars: int) -> pd.DataFrame:
+    limit = max(500, calc_bars)  # حداقل ۵۰۰ کندل برای محاسبات
     try:
         url = "https://api.binance.com/api/v3/klines"
         r = requests.get(url, params={
@@ -606,51 +603,57 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df["MACD_hist"] = df["MACD"] - df["MACD_signal"]
     return df
 
-def create_plotly_chart(symbol: str, interval: str, candles: int, max_bars: int, png_name: str):
-    df = fetch_ohlc(symbol, interval, max_bars)
-    if df.empty:
-        df = pd.DataFrame(columns=["o","h","l","c","v"])
-        df.index = pd.to_datetime([])
-    else:
-        df = df[["o","h","l","c","v"]]
-        if len(df) > candles:
-            df = df.iloc[-candles:]
-    df = compute_indicators(df)
+def create_plotly_chart(symbol: str, interval: str, max_bars: int, calc_bars: int, png_name: str):
+    df_raw = fetch_ohlc(symbol, interval, calc_bars)
+    if df_raw.empty:
+        df_raw = pd.DataFrame(columns=["o","h","l","c","v"])
+        df_raw.index = pd.to_datetime([])
+    df_ind = compute_indicators(df_raw)
+    # نمایش فقط آخرین max_bars کندل، محاسبات روی کل df_ind (حداقل ۵۰۰)
+    df_plot = df_ind.tail(max_bars)
+
     fig = make_subplots(rows=3, cols=1, shared_xaxes=True, row_heights=[0.6,0.2,0.2], vertical_spacing=0.03)
-    fig.add_trace(go.Candlestick(x=df.index, open=df["o"], high=df["h"], low=df["l"], close=df["c"], name="Price"), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df.index, y=df["SMA20"],  mode="lines", name="SMA20",  line=dict(color="blue")),   row=1, col=1)
-    fig.add_trace(go.Scatter(x=df.index, y=df["SMA100"], mode="lines", name="SMA100", line=dict(color="orange")), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df.index, y=df["SMA200"], mode="lines", name="SMA200", line=dict(color="purple")), row=1, col=1)
-    wma   = df["WMA20"]
-    slope = df["WMA20_slope"]
+    fig.add_trace(go.Candlestick(x=df_plot.index, open=df_plot["o"], high=df_plot["h"], low=df_plot["l"], close=df_plot["c"], name="Price"), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot["SMA20"],  mode="lines", name="SMA20",  line=dict(color="blue")),   row=1, col=1)
+    fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot["SMA100"], mode="lines", name="SMA100", line=dict(color="orange")), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot["SMA200"], mode="lines", name="SMA200", line=dict(color="purple")), row=1, col=1)
+
+    wma   = df_plot["WMA20"]
+    slope = df_plot["WMA20_slope"]
     wma_up   = wma.where(slope >= 0)
     wma_down = wma.where(slope < 0)
-    fig.add_trace(go.Scatter(x=df.index, y=wma_up,   mode="lines", name="WMA20 Up",   line=dict(color="green", width=2, dash="dot")), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df.index, y=wma_down, mode="lines", name="WMA20 Down", line=dict(color="red",   width=2, dash="dot")), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df.index, y=df["RSI14"], mode="lines", name="RSI14", line=dict(color="brown")), row=2, col=1)
+    fig.add_trace(go.Scatter(x=df_plot.index, y=wma_up,   mode="lines", name="WMA20 Up",   line=dict(color="green", width=2, dash="dot")), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df_plot.index, y=wma_down, mode="lines", name="WMA20 Down", line=dict(color="red",   width=2, dash="dot")), row=1, col=1)
+
+    fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot["RSI14"], mode="lines", name="RSI14", line=dict(color="brown")), row=2, col=1)
     fig.add_hline(y=70, line=dict(color="red", dash="dash"), row=2, col=1)
     fig.add_hline(y=30, line=dict(color="green", dash="dash"), row=2, col=1)
-    fig.add_trace(go.Scatter(x=df.index, y=df["MACD"],        mode="lines", name="MACD",   line=dict(color="black")),   row=3, col=1)
-    fig.add_trace(go.Scatter(x=df.index, y=df["MACD_signal"], mode="lines", name="Signal", line=dict(color="magenta")), row=3, col=1)
-    fig.add_trace(go.Bar(x=df.index, y=df["MACD_hist"], name="Hist", marker_color="gray"), row=3, col=1)
+
+    fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot["MACD"],        mode="lines", name="MACD",   line=dict(color="black")),   row=3, col=1)
+    fig.add_trace(go.Scatter(x=df_plot.index, y=df_plot["MACD_signal"], mode="lines", name="Signal", line=dict(color="magenta")), row=3, col=1)
+    fig.add_trace(go.Bar(x=df_plot.index, y=df_plot["MACD_hist"], name="Hist", marker_color="gray"), row=3, col=1)
+
     fig.update_layout(title=f"{symbol} – {interval}", xaxis_rangeslider_visible=False, template="plotly_white", height=1000)
     fig.add_annotation(text=f"{symbol} – {interval}", xref="paper", yref="paper", x=0.5, y=1.05, showarrow=False, font=dict(size=30, color="black"))
     fig.update_yaxes(side="right", showgrid=True)
+
     png_path = os.path.join(CHARTS_DIR, png_name)
     try:
         fig.write_image(png_path, width=1800, height=1100, scale=3)
     except:
         pass
+
+    # برای آلارم‌ها از کل df_ind استفاده می‌کنیم (نه فقط df_plot)
     return {
         "symbol": symbol,
         "interval": interval,
         "png_path": png_path,
         "created_at": now_utc_str(),
-        "wma": df["WMA20"].tolist() if "WMA20" in df.columns else [],
-        "wma_slope": df["WMA20_slope"].tolist() if "WMA20_slope" in df.columns else [],
-        "sma20": df["SMA20"].tolist() if "SMA20" in df.columns else [],
-        "sma100": df["SMA100"].tolist() if "SMA100" in df.columns else [],
-        "sma200": df["SMA200"].tolist() if "SMA200" in df.columns else []
+        "wma": df_ind["WMA20"].tolist() if "WMA20" in df_ind.columns else [],
+        "wma_slope": df_ind["WMA20_slope"].tolist() if "WMA20_slope" in df_ind.columns else [],
+        "sma20": df_ind["SMA20"].tolist() if "SMA20" in df_ind.columns else [],
+        "sma100": df_ind["SMA100"].tolist() if "SMA100" in df_ind.columns else [],
+        "sma200": df_ind["SMA200"].tolist() if "SMA200" in df_ind.columns else []
     }
 
 def detect_alarms(cfg: dict, info: dict, group: str):
@@ -705,6 +708,7 @@ def make_15m_combined_pages(jpg_paths: list) -> list:
     pages = []
     page_w, page_h = 1800, 1400
     cell_w, cell_h = page_w // 4, page_h // 3
+
     for i in range(0, len(jpg_paths), 12):
         chunk = jpg_paths[i:i+12]
         page = Image.new("RGB", (page_w, page_h), (255, 255, 255))
@@ -722,43 +726,68 @@ def make_15m_combined_pages(jpg_paths: list) -> list:
         out_path = os.path.join(CHARTS_DIR, out_name)
         page.save(out_path, format="JPEG", quality=95)
         pages.append(out_path)
+
     return pages
 
 # =========================
-# اجرای سیکل‌ها
+# اجرای سیکل‌ها با قفل (دو روش: معمولی و اجباری)
 # =========================
 
-def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str, candles: int, max_bars: int, make_pdf: bool):
+def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str, max_bars: int, make_pdf: bool, force_lock: bool = False):
+    """
+    اگر force_lock=True باشد، قفل به صورت blocking گرفته می‌شود تا حتماً سیکل اجرا شود.
+    اگر False باشد، در صورت مشغول بودن قفل، سیکل اجرا نمی‌شود (برای زمان‌بندی خودکار).
+    """
     lock = CYCLE_LOCKS.get(group)
     if lock is None:
         return
-    if not lock.acquire(blocking=False):
-        return
+
+    if force_lock:
+        lock.acquire(blocking=True)
+    else:
+        if not lock.acquire(blocking=False):
+            # اگر قفل مشغول است، برای اطمینان یک بار دیگر با تاخیر تلاش می‌کنیم
+            time.sleep(2)
+            if not lock.acquire(blocking=False):
+                return
+
     combined_jpgs = []
+
     try:
         cfg = load_config()
         verbose = cfg.get(f"verbose_{group}", True)
+        calc_bars = cfg.get("calc_bars", 500)
+
         if chat_id is None:
             return
+
         if verbose:
             bot.send_message(chat_id, f"شروع چرخه {group}\n{now_utc_str()} UTC")
+
         unique_symbols = list(dict.fromkeys(symbols))
         total = len(unique_symbols)
         processed = 0
-        batch_size = cfg.get("cycle_progress_batch", 5)
+        batch_size = cfg.get("cycle_progress_batch", 15)
+
         pdf = None
         pdf_filename = None
+
         if make_pdf and group in ["1h", "1d"]:
             pdf_filename = os.path.join(PDF_DIR, f"{group}_{now_utc().strftime('%Y%m%d_%H%M%S')}.pdf")
             pdf = PdfPages(pdf_filename)
+
         for sym in unique_symbols:
             processed += 1
+
             if verbose and (processed % batch_size == 0 or processed == 1 or processed == total):
                 bot.send_message(chat_id, f"چرخه {group}: {processed}/{total} نماد، {total - processed} باقی مانده.")
+
             ts = now_utc().strftime("%Y%m%d_%H%M%S")
             png = f"{group}_{sym}_{ts}.png"
-            info = create_plotly_chart(sym, interval, candles, max_bars, png)
+
+            info = create_plotly_chart(sym, interval, max_bars, calc_bars, png)
             alarms = detect_alarms(cfg, info, group)
+
             if group == "15m":
                 try:
                     img = Image.open(info["png_path"]).convert("RGB")
@@ -768,17 +797,20 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str, candl
                     combined_jpgs.append(jpg_path)
                 except:
                     pass
+
             if verbose or alarms:
                 caption = f"{sym} ({group})"
                 if alarms:
                     caption += "\n" + "\n".join(alarms)
                 else:
                     caption += " – بدون آلارم"
+
                 try:
                     with open(info["png_path"], "rb") as f:
                         bot.send_photo(chat_id, f, caption=caption)
                 except:
                     pass
+
             if pdf is not None:
                 try:
                     img = plt.imread(info["png_path"])
@@ -790,7 +822,9 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str, candl
                     plt.close(fig)
                 except:
                     pass
+
             time.sleep(0.3)
+
         if pdf is not None:
             try:
                 pdf.close()
@@ -798,6 +832,7 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str, candl
                     bot.send_document(chat_id, f, caption=f"گزارش PDF کامل سیکل {group}")
             except:
                 pass
+
         if group == "15m":
             cfg = load_config()
             if cfg.get("make_combined_15m", True) and combined_jpgs:
@@ -808,141 +843,162 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str, candl
                             bot.send_photo(chat_id, f, caption="صفحهٔ ترکیبی ۱۵دقیقه‌ای")
                     except:
                         pass
+
         if verbose:
             bot.send_message(chat_id, f"پایان چرخه {group}\n{now_utc_str()} UTC")
+
     finally:
         lock.release()
 
 # =========================
-# اجرای فوری چرخه‌ها و تک نماد
+# اجرای فوری و اجرای چرخه‌ها
 # =========================
-
-def _run_group_cycle(group: str):
-    cfg = load_config()
-    if group == "1h":
-        bot = bot_1h
-        chat_id = cfg.get("chat_id_1h")
-        symbols = cfg.get("symbols_1h", [])
-        interval = "1h"
-        candles = cfg.get("candles_1h", 80)
-        make_pdf = cfg.get("make_pdf_1h", True)
-    elif group == "4h":
-        bot = bot_4h or bot_1h
-        chat_id = cfg.get("chat_id_4h") or cfg.get("chat_id_1h")
-        symbols = cfg.get("symbols_4h", [])
-        interval = "4h"
-        candles = cfg.get("candles_4h", 60)
-        make_pdf = False
-    elif group == "1d":
-        bot = bot_1d or bot_1h
-        chat_id = cfg.get("chat_id_1d") or cfg.get("chat_id_1h")
-        symbols = cfg.get("symbols_1d", [])
-        interval = "1d"
-        candles = cfg.get("candles_1d", 60)
-        make_pdf = cfg.get("make_pdf_1d", True)
-    elif group == "15m":
-        bot = bot_15m or bot_1h
-        chat_id = cfg.get("chat_id_15m") or cfg.get("chat_id_1h")
-        symbols = cfg.get("symbols_15m", [])
-        interval = "15m"
-        candles = cfg.get("candles_15m", 40)
-        make_pdf = False
-    else:
-        return
-    max_bars = cfg.get("max_bars", 300)
-    if not symbols:
-        if bot and chat_id:
-            bot.send_message(chat_id, f"هیچ نمادی برای {group} ثبت نشده است.")
-        return
-    threading.Thread(target=run_cycle, args=(group, bot, chat_id, symbols, interval, candles, max_bars, make_pdf), daemon=True).start()
 
 @bot_1h.message_handler(func=lambda m: m.text == "اجرای دستی 1h")
 def manual_1h(m):
-    _run_group_cycle("1h")
+    cfg = load_config()
+    chat_id = cfg.get("chat_id_1h") or m.chat.id
+    symbols = cfg["symbols_1h"]
+    max_bars = cfg["max_bars_1h"]
+    run_cycle("1h", bot_1h, chat_id, symbols, "1h", max_bars, cfg["make_pdf_1h"], force_lock=True)
 
 @bot_1h.message_handler(func=lambda m: m.text == "اجرای فوری 4h")
 def manual_4h(m):
-    _run_group_cycle("4h")
+    cfg = load_config()
+    chat_id = cfg.get("chat_id_4h") or cfg.get("chat_id_1h") or m.chat.id
+    symbols = cfg["symbols_4h"]
+    max_bars = cfg["max_bars_4h"]
+    run_cycle("4h", bot_4h or bot_1h, chat_id, symbols, "4h", max_bars, False, force_lock=True)
 
 @bot_1h.message_handler(func=lambda m: m.text == "اجرای فوری 1d")
 def manual_1d(m):
-    _run_group_cycle("1d")
+    cfg = load_config()
+    chat_id = cfg.get("chat_id_1d") or cfg.get("chat_id_1h") or m.chat.id
+    symbols = cfg["symbols_1d"]
+    max_bars = cfg["max_bars_1d"]
+    run_cycle("1d", bot_1d or bot_1h, chat_id, symbols, "1d", max_bars, cfg["make_pdf_1d"], force_lock=True)
 
 @bot_1h.message_handler(func=lambda m: m.text == "اجرای فوری 15m")
 def manual_15m(m):
-    _run_group_cycle("15m")
+    cfg = load_config()
+    chat_id = cfg.get("chat_id_15m") or cfg.get("chat_id_1h") or m.chat.id
+    symbols = cfg["symbols_15m"]
+    max_bars = cfg["max_bars_15m"]
+    run_cycle("15m", bot_15m or bot_1h, chat_id, symbols, "15m", max_bars, False, force_lock=True)
 
 @bot_1h.message_handler(func=lambda m: m.text == "اجرای چرخه‌ها")
 def run_all_cycles(m):
+    """
+    اجرای همه سیکل‌ها با فاصله ۵ دقیقه بین هر سیکل.
+    برای اطمینان از اجرای حتمی، از force_lock=True استفاده می‌کنیم.
+    """
     cfg = load_config()
-    chat_id = m.chat.id
-    bot_1h.send_message(chat_id, "اجرای چرخه‌ها برای همه تایم‌فریم‌ها با فاصله‌ی ۵ دقیقه شروع شد.")
-    def _runner():
-        _run_group_cycle("1h")
-        time.sleep(5 * 60)
-        _run_group_cycle("4h")
-        time.sleep(5 * 60)
-        _run_group_cycle("1d")
-        time.sleep(5 * 60)
-        _run_group_cycle("15m")
-    threading.Thread(target=_runner, daemon=True).start()
+    chat_1h  = cfg.get("chat_id_1h")  or m.chat.id
+    chat_4h  = cfg.get("chat_id_4h")  or chat_1h
+    chat_1d  = cfg.get("chat_id_1d")  or chat_1h
+    chat_15m = cfg.get("chat_id_15m") or chat_1h
+
+    bot_1h.send_message(chat_1h, "اجرای چرخه‌ها آغاز شد.\n1h → 4h → 1d → 15m با فاصله ۵ دقیقه.")
+
+    def _run_seq():
+        try:
+            # 1h
+            run_cycle("1h", bot_1h, chat_1h, cfg["symbols_1h"], "1h", cfg["max_bars_1h"], cfg["make_pdf_1h"], force_lock=True)
+            time.sleep(5 * 60)
+
+            # 4h
+            run_cycle("4h", bot_4h or bot_1h, chat_4h, cfg["symbols_4h"], "4h", cfg["max_bars_4h"], False, force_lock=True)
+            time.sleep(5 * 60)
+
+            # 1d
+            run_cycle("1d", bot_1d or bot_1h, chat_1d, cfg["symbols_1d"], "1d", cfg["max_bars_1d"], cfg["make_pdf_1d"], force_lock=True)
+            time.sleep(5 * 60)
+
+            # 15m
+            run_cycle("15m", bot_15m or bot_1h, chat_15m, cfg["symbols_15m"], "15m", cfg["max_bars_15m"], False, force_lock=True)
+
+            bot_1h.send_message(chat_1h, "اجرای چرخه‌ها به‌صورت کامل انجام شد.")
+        except Exception as e:
+            try:
+                bot_1h.send_message(chat_1h, f"خطا در اجرای چرخه‌ها: {e}")
+            except:
+                pass
+
+    threading.Thread(target=_run_seq, daemon=True).start()
 
 # =========================
-# چک یک نماد (اجرای فوری تک نماد در 1h)
+# چک یک نماد (اجرای تک نماد)
 # =========================
 
 @bot_1h.message_handler(func=lambda m: m.text == "چک یک نماد")
 def check_one_symbol(m):
-    msg = bot_1h.send_message(m.chat.id, "نماد مورد نظر را وارد کن (مثلاً BTCUSDT):")
-    def _handler(mm):
-        symbol = mm.text.strip().upper()
-        cfg = load_config()
-        candles = cfg.get("candles_1h", 80)
-        max_bars = cfg.get("max_bars", 300)
-        ts = now_utc().strftime("%Y%m%d_%H%M%S")
-        png = f"check_1h_{symbol}_{ts}.png"
-        info = create_plotly_chart(symbol, "1h", candles, max_bars, png)
-        alarms = detect_alarms(cfg, info, "1h")
-        caption = f"{symbol} (1h)"
-        if alarms:
-            caption += "\n" + "\n".join(alarms)
-        else:
-            caption += " – بدون آلارم"
-        try:
-            with open(info["png_path"], "rb") as f:
-                bot_1h.send_photo(mm.chat.id, f, caption=caption)
-        except:
-            bot_1h.send_message(mm.chat.id, "خطا در ارسال نمودار.")
-    bot_1h.register_next_step_handler(msg, _handler)
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    kb.row("تایم‌فریم 1h", "تایم‌فریم 4h")
+    kb.row("تایم‌فریم 1d", "تایم‌فریم 15m")
+    kb.row("بازگشت به منوی اصلی")
+    msg = bot_1h.send_message(m.chat.id, "تایم‌فریم را انتخاب کنید:", reply_markup=kb)
+    bot_1h.register_next_step_handler(msg, _check_symbol_interval_step)
 
-# =========================
-# اجرای ربات‌ها
-# =========================
+def _check_symbol_interval_step(m):
+    tf_map = {
+        "تایم‌فریم 1h": "1h",
+        "تایم‌فریم 4h": "4h",
+        "تایم‌فریم 1d": "1d",
+        "تایم‌فریم 15m": "15m"
+    }
+    if m.text not in tf_map:
+        send_main_menu(m.chat.id)
+        return
+    interval = tf_map[m.text]
+    msg = bot_1h.send_message(m.chat.id, "نماد را وارد کنید (مثلاً BTCUSDT):")
+    bot_1h.register_next_step_handler(msg, lambda mm: _check_symbol_run(mm, interval))
 
-def _start_bot(bot):
+def _check_symbol_run(m, interval):
+    symbol = m.text.strip().upper()
+    cfg = load_config()
+    calc_bars = cfg.get("calc_bars", 500)
+    max_bars_key = {
+        "1h": "max_bars_1h",
+        "4h": "max_bars_4h",
+        "1d": "max_bars_1d",
+        "15m": "max_bars_15m"
+    }[interval]
+    max_bars = cfg.get(max_bars_key, 80)
+    ts = now_utc().strftime("%Y%m%d_%H%M%S")
+    png = f"single_{interval}_{symbol}_{ts}.png"
+    info = create_plotly_chart(symbol, interval, max_bars, calc_bars, png)
+    alarms = detect_alarms(cfg, info, interval)
+    caption = f"{symbol} ({interval})"
+    if alarms:
+        caption += "\n" + "\n".join(alarms)
+    else:
+        caption += " – بدون آلارم"
     try:
-        bot.infinity_polling(timeout=60, long_polling_timeout=60)
+        with open(info["png_path"], "rb") as f:
+            bot_1h.send_photo(m.chat.id, f, caption=caption)
     except:
-        time.sleep(5)
-        _start_bot(bot)
+        bot_1h.send_message(m.chat.id, "خطا در ارسال نمودار.")
+    send_main_menu(m.chat.id)
+
+# =========================
+# حلقه‌های ربات‌ها
+# =========================
+
+def _run_bot(bot):
+    if bot:
+        try:
+            bot.infinity_polling(timeout=60, long_polling_timeout=60)
+        except:
+            time.sleep(5)
+            _run_bot(bot)
 
 threads = []
-if bot_1h:
-    t = threading.Thread(target=_start_bot, args=(bot_1h,), daemon=True)
-    threads.append(t)
-    t.start()
-if bot_4h:
-    t = threading.Thread(target=_start_bot, args=(bot_4h,), daemon=True)
-    threads.append(t)
-    t.start()
-if bot_1d:
-    t = threading.Thread(target=_start_bot, args=(bot_1d,), daemon=True)
-    threads.append(t)
-    t.start()
-if bot_15m:
-    t = threading.Thread(target=_start_bot, args=(bot_15m,), daemon=True)
-    threads.append(t)
-    t.start()
+for b in [bot_1h, bot_4h, bot_1d, bot_15m]:
+    if b:
+        t = threading.Thread(target=_run_bot, args=(b,), daemon=True)
+        t.start()
+        threads.append(t)
 
+# نگه داشتن برنامه
 while True:
     time.sleep(10)
