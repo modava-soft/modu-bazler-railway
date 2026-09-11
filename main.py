@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Modu Bazler v5.2 – نسخه‌ی پایدار با زمان‌بندی، قفل سیکل‌ها و شماره‌های تست
+# Modu Bazler v5.3 – نسخه‌ی پایدار با SmartLock، Watchdog و تست سیکل‌ها
 
 import os, json, time, threading, datetime as dt
 import requests, numpy as np, pandas as pd
@@ -25,7 +25,7 @@ PDF_DIR    = os.path.join(DATA_DIR, "pdf")
 for d in [DATA_DIR, CHARTS_DIR, PDF_DIR]:
     os.makedirs(d, exist_ok=True)
 
-CONFIG_PATH = os.path.join(DATA_DIR, "config_v5_2.json")
+CONFIG_PATH = os.path.join(DATA_DIR, "config_v5_3.json")
 
 DEFAULT_CONFIG = {
     "symbols_1h": [
@@ -54,7 +54,7 @@ DEFAULT_CONFIG = {
         "RUNEUSDT","RAYUSDT","LDOUSDT","COMPUSDT","CRVUSDT","MKRUSDT","SNXUSDT","GMXUSDT","DYDXUSDT","ENSUSDT"
     ],
 
-    # تعداد کندل برای محاسبات (ثابت 500) و نمایش
+    # محاسبات روی 500 کندل، نمایش طبق max_bars
     "lookback_1h": 5,
     "lookback_4h": 15,
     "lookback_1d": 180,
@@ -84,7 +84,11 @@ DEFAULT_CONFIG = {
     "verbose_1d": True,
     "verbose_15m": True,
 
-    "cycle_progress_batch": 5
+    "cycle_progress_batch": 5,
+
+    # تنظیمات SmartLock
+    "lock_timeout_sec": 600,   # اگر قفل بیش از 10 دقیقه نگه داشته شد، آزاد شود
+    "cycle_min_duration_sec": 5  # اگر سیکل کمتر از 5 ثانیه طول کشید، fallback اجرا شود
 }
 
 def save_config(cfg: dict):
@@ -127,10 +131,6 @@ TOKEN_15M  = (os.getenv("TOKEN_15M") or "").strip()
 ADMIN_CHAT = (os.getenv("ADMIN_CHAT_ID") or "").strip()
 
 def debug_mark(bot, chat_id, code: int, where: str):
-    """
-    ارسال شمارهٔ تست برای پیدا کردن محل خطا.
-    اگر bot یا chat_id نداشتیم، فقط سعی می‌کنیم به ADMIN_CHAT بفرستیم.
-    """
     msg = f"TEST#{code} @ {where}"
     try:
         if bot and chat_id:
@@ -138,7 +138,6 @@ def debug_mark(bot, chat_id, code: int, where: str):
         elif ADMIN_CHAT and bot:
             bot.send_message(int(ADMIN_CHAT), msg)
     except:
-        # اگر همین‌جا هم خطا شد، کاری نمی‌کنیم.
         pass
 
 def create_bot(token: str):
@@ -164,11 +163,41 @@ LAST_ALARMS = {
     "15m": []
 }
 
+# SmartLock: قفل + زمان آخرین گرفتن
+class SmartLock:
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.last_acquire = None
+
+    def acquire(self, blocking=False):
+        cfg = load_config()
+        timeout = cfg.get("lock_timeout_sec", 600)
+        # اگر قفل قبلاً گرفته شده و خیلی طولانی شده، آزادش کن
+        if self.lock.locked() and self.last_acquire:
+            elapsed = (now_utc() - self.last_acquire).total_seconds()
+            if elapsed > timeout:
+                try:
+                    self.lock.release()
+                    debug_mark(bot_1h, int(ADMIN_CHAT) if ADMIN_CHAT else None, 1901, "SmartLock_force_release")
+                except:
+                    pass
+        ok = self.lock.acquire(blocking=blocking)
+        if ok:
+            self.last_acquire = now_utc()
+        return ok
+
+    def release(self):
+        if self.lock.locked():
+            try:
+                self.lock.release()
+            except:
+                pass
+
 CYCLE_LOCKS = {
-    "1h": threading.Lock(),
-    "4h": threading.Lock(),
-    "1d": threading.Lock(),
-    "15m": threading.Lock()
+    "1h": SmartLock(),
+    "4h": SmartLock(),
+    "1d": SmartLock(),
+    "15m": SmartLock()
 }
 
 # =========================
@@ -176,7 +205,7 @@ CYCLE_LOCKS = {
 # =========================
 
 HELP_TEXT = """
-Modu Bazler v5.2 – نسخه‌ی پایدار با تست سیکل‌ها
+Modu Bazler v5.3 – نسخه‌ی پایدار با SmartLock و تست سیکل‌ها
 
 📌 ربات‌ها:
 - 1h: ربات اصلی مدیریت و منو
@@ -477,6 +506,8 @@ def system_status(m):
     txt += f"verbose 4h: {'ON' if cfg['verbose_4h'] else 'OFF'}\n"
     txt += f"verbose 1d: {'ON' if cfg['verbose_1d'] else 'OFF'}\n"
     txt += f"verbose 15m: {'ON' if cfg['verbose_15m'] else 'OFF'}\n"
+    txt += f"lock_timeout_sec: {cfg.get('lock_timeout_sec', 600)}\n"
+    txt += f"cycle_min_duration_sec: {cfg.get('cycle_min_duration_sec', 5)}\n"
     try:
         bot_1h.send_message(m.chat.id, txt)
     except Exception:
@@ -547,7 +578,6 @@ def _kucoin_interval(i: str) -> str:
     return {"1h": "1hour", "4h": "4hour", "1d": "1day", "15m": "15min"}[i]
 
 def fetch_ohlc(symbol: str, interval: str, lookback_days: int, max_bars: int) -> pd.DataFrame:
-    # محاسبات روی 500 کندل، نمایش طبق max_bars
     limit = max(500, max_bars)
     try:
         url = "https://api.binance.com/api/v3/klines"
@@ -620,7 +650,6 @@ def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars
         df = pd.DataFrame(columns=["o","h","l","c","v"])
         df.index = pd.to_datetime([])
     else:
-        # فقط آخر max_bars برای نمایش
         df = df.tail(max_bars)[["o","h","l","c","v"]]
     df = compute_indicators(df)
     fig = make_subplots(rows=3, cols=1, shared_xaxes=True, row_heights=[0.6,0.2,0.2], vertical_spacing=0.03)
@@ -741,21 +770,20 @@ def make_15m_combined_pages(jpg_paths: list) -> list:
     return pages
 
 # =========================
-# اجرای سیکل‌ها با قفل (verbose ON/OFF)
+# اجرای سیکل‌ها با SmartLock و Watchdog
 # =========================
 
-def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str, lookback_days: int, max_bars: int, make_pdf: bool):
+def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str, lookback_days: int, max_bars: int, make_pdf: bool):
     lock = CYCLE_LOCKS.get(group)
     if lock is None:
         debug_mark(bot, chat_id, 901, f"run_cycle_no_lock_{group}")
         return
+
     if not lock.acquire(blocking=False):
-        # اگر قفل مشغول است، شمارهٔ تست بفرستیم
         debug_mark(bot, chat_id, 902, f"run_cycle_lock_busy_{group}")
         return
 
     combined_jpgs = []
-
     try:
         cfg = load_config()
         verbose = cfg.get(f"verbose_{group}", True)
@@ -860,6 +888,23 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str, lookb
     finally:
         lock.release()
 
+def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str, lookback_days: int, max_bars: int, make_pdf: bool):
+    """
+    اجرای سیکل با Watchdog و fallback:
+    - اگر سیکل خیلی سریع (کمتر از cycle_min_duration_sec) تمام شد، یک بار دیگر اجرا می‌شود.
+    """
+    cfg = load_config()
+    min_dur = cfg.get("cycle_min_duration_sec", 5)
+
+    start = now_utc()
+    run_cycle_once(group, bot, chat_id, symbols, interval, lookback_days, max_bars, make_pdf)
+    end = now_utc()
+
+    elapsed = (end - start).total_seconds()
+    if elapsed < min_dur:
+        debug_mark(bot, chat_id, 2001, f"run_cycle_fallback_{group}")
+        run_cycle_once(group, bot, chat_id, symbols, interval, lookback_days, max_bars, make_pdf)
+
 # =========================
 # اجرای دستی و فوری سیکل‌ها
 # =========================
@@ -936,11 +981,6 @@ def check_one_symbol_do(m):
 # =========================
 
 def scheduler_loop():
-    """
-    حلقهٔ زمان‌بندی:
-    - هر دقیقه زمان را چک می‌کند.
-    - در دقیقه‌های مشخص، سیکل‌ها را اجرا می‌کند.
-    """
     while True:
         try:
             now = now_utc()
