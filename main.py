@@ -12,6 +12,10 @@ from plotly.subplots import make_subplots
 import telebot
 from telebot import types
 
+# =========================
+# مسیرها و کانفیگ
+# =========================
+
 BASE_DIR   = os.path.abspath(os.path.dirname(__file__))
 DATA_DIR   = os.path.join(BASE_DIR, "data")
 CHARTS_DIR = os.path.join(DATA_DIR, "charts")
@@ -88,6 +92,10 @@ DEFAULT_CONFIG = {
     "enable_15m": True,
 }
 
+# =========================
+# توکن‌ها و ربات‌ها
+# =========================
+
 TOKEN_1H   = (os.getenv("TOKEN_1H") or "").strip()
 TOKEN_4H   = (os.getenv("TOKEN_4H") or "").strip()
 TOKEN_1D   = (os.getenv("TOKEN_1D") or "").strip()
@@ -99,6 +107,16 @@ def now_utc():
 
 def now_utc_str():
     return now_utc().strftime("%Y-%m-%d %H:%M:%S")
+
+def debug_mark(bot, chat_id, code: int, where: str):
+    msg = f"TEST#{code} @ {where}"
+    try:
+        if bot and chat_id:
+            bot.send_message(chat_id, msg)
+        elif ADMIN_CHAT and bot:
+            bot.send_message(int(ADMIN_CHAT), msg)
+    except:
+        pass
 
 def save_config(cfg: dict):
     try:
@@ -123,16 +141,6 @@ def reset_config():
     save_config(cfg)
     return cfg
 
-def debug_mark(bot, chat_id, code: int, where: str):
-    msg = f"TEST#{code} @ {where}"
-    try:
-        if bot and chat_id:
-            bot.send_message(chat_id, msg)
-        elif ADMIN_CHAT and bot:
-            bot.send_message(int(ADMIN_CHAT), msg)
-    except:
-        pass
-
 def create_bot(token: str):
     if not token or not isinstance(token, str):
         return None
@@ -149,7 +157,16 @@ bot_4h  = create_bot(TOKEN_4H)
 bot_1d  = create_bot(TOKEN_1D)
 bot_15m = create_bot(TOKEN_15M)
 
-LAST_ALARMS = {"1h": [], "4h": [], "1d": [], "15m": []}
+LAST_ALARMS = {
+    "1h": [],
+    "4h": [],
+    "1d": [],
+    "15m": []
+}
+
+# =========================
+# SmartLock
+# =========================
 
 class SmartLock:
     def __init__(self):
@@ -186,8 +203,26 @@ CYCLE_LOCKS = {
     "15m": SmartLock()
 }
 
+# =========================
+# راهنما و منو
+# =========================
+
 HELP_TEXT = """
 Modu Bazler v5.3 – SmartLock + Watchdog + verbose + عکس تجمیعی 15m
+
+🧭 منوی ربات 1h:
+- چک یک نماد
+- اجرای دستی 1h
+- اجرای فوری 4h / 1d / 15m
+- مدیریت نمادهای 1h / 4h / 1d / 15m
+- تنظیم آلارم‌ها
+- گزارش آلارم‌ها
+- وضعیت سیستم
+- تنظیمات پیشرفته
+- اجرای چرخه‌ها
+- ریست برنامه
+- راهنما
+- رفرش منو
 """
 
 def send_main_menu(chat_id):
@@ -201,20 +236,30 @@ def send_main_menu(chat_id):
     kb.row("وضعیت سیستم", "تنظیمات پیشرفته")
     kb.row("اجرای چرخه‌ها", "ریست برنامه")
     kb.row("راهنما", "رفرش منو")
-    bot_1h.send_message(chat_id, "منوی اصلی:", reply_markup=kb)
+    try:
+        bot_1h.send_message(chat_id, "منوی اصلی:", reply_markup=kb)
+    except Exception:
+        debug_mark(bot_1h, chat_id, 201, "send_main_menu")
 
 @bot_1h.message_handler(commands=["start"])
 def start_main(m):
     cfg = load_config()
     cfg["chat_id_1h"] = m.chat.id
     save_config(cfg)
-    bot_1h.send_message(m.chat.id, HELP_TEXT)
-    send_main_menu(m.chat.id)
+    try:
+        bot_1h.send_message(m.chat.id, HELP_TEXT)
+        send_main_menu(m.chat.id)
+    except Exception:
+        debug_mark(bot_1h, m.chat.id, 202, "start_main")
 
 @bot_1h.message_handler(commands=["refresh"])
 @bot_1h.message_handler(func=lambda m: m.text == "رفرش منو")
 def refresh_main(m):
     send_main_menu(m.chat.id)
+
+# =========================
+# استارت سایر ربات‌ها
+# =========================
 
 if bot_4h:
     @bot_4h.message_handler(commands=["start"])
@@ -222,7 +267,10 @@ if bot_4h:
         cfg = load_config()
         cfg["chat_id_4h"] = m.chat.id
         save_config(cfg)
-        bot_4h.send_message(m.chat.id, "ربات ۴ساعته فعال شد.\n" + now_utc_str())
+        try:
+            bot_4h.send_message(m.chat.id, "ربات ۴ساعته فعال شد.\n" + now_utc_str())
+        except Exception:
+            debug_mark(bot_4h, m.chat.id, 203, "start_4h")
 
 if bot_1d:
     @bot_1d.message_handler(commands=["start"])
@@ -230,7 +278,10 @@ if bot_1d:
         cfg = load_config()
         cfg["chat_id_1d"] = m.chat.id
         save_config(cfg)
-        bot_1d.send_message(m.chat.id, "ربات روزانه فعال شد.\n" + now_utc_str())
+        try:
+            bot_1d.send_message(m.chat.id, "ربات روزانه فعال شد.\n" + now_utc_str())
+        except Exception:
+            debug_mark(bot_1d, m.chat.id, 204, "start_1d")
 
 if bot_15m:
     @bot_15m.message_handler(commands=["start"])
@@ -238,15 +289,29 @@ if bot_15m:
         cfg = load_config()
         cfg["chat_id_15m"] = m.chat.id
         save_config(cfg)
-        bot_15m.send_message(m.chat.id, "ربات ۱۵دقیقه‌ای فعال شد.\n" + now_utc_str())
+        try:
+            bot_15m.send_message(m.chat.id, "ربات ۱۵دقیقه‌ای فعال شد.\n" + now_utc_str())
+        except Exception:
+            debug_mark(bot_15m, m.chat.id, 205, "start_15m")
+
+# =========================
+# ریست برنامه
+# =========================
 
 @bot_1h.message_handler(func=lambda m: m.text == "ریست برنامه")
 def reset_app(m):
     cfg = reset_config()
     cfg["chat_id_1h"] = m.chat.id
     save_config(cfg)
-    bot_1h.send_message(m.chat.id, "برنامه و تنظیمات کامل ریست شد.")
-    send_main_menu(m.chat.id)
+    try:
+        bot_1h.send_message(m.chat.id, "برنامه و تنظیمات کامل ریست شد.")
+        send_main_menu(m.chat.id)
+    except Exception:
+        debug_mark(bot_1h, m.chat.id, 206, "reset_app")
+
+# =========================
+# مدیریت نمادها
+# =========================
 
 def get_symbols(cfg, group):
     return cfg[f"symbols_{group}"]
@@ -264,7 +329,10 @@ def show_symbol_menu(chat_id, group):
     kb.row(f"افزودن نماد به {group}", f"حذف نماد از {group}")
     kb.row(f"نمایش نمادهای {group}")
     kb.row("بازگشت به منوی اصلی")
-    bot_1h.send_message(chat_id, txt, reply_markup=kb)
+    try:
+        bot_1h.send_message(chat_id, txt, reply_markup=kb)
+    except Exception:
+        debug_mark(bot_1h, chat_id, 301, "show_symbol_menu")
 
 @bot_1h.message_handler(func=lambda m: m.text == "مدیریت نمادهای 1h")
 def manage_1h(m): show_symbol_menu(m.chat.id, "1h")
@@ -291,9 +359,15 @@ def add_symbol_step(m, group):
     if symbol not in symbols:
         symbols.append(symbol)
         set_symbols(cfg, group, symbols)
-        bot_1h.send_message(m.chat.id, f"{symbol} به لیست {group} اضافه شد.")
+        try:
+            bot_1h.send_message(m.chat.id, f"{symbol} به لیست {group} اضافه شد.")
+        except Exception:
+            debug_mark(bot_1h, m.chat.id, 302, "add_symbol_step")
     else:
-        bot_1h.send_message(m.chat.id, f"{symbol} قبلاً در لیست {group} وجود دارد.")
+        try:
+            bot_1h.send_message(m.chat.id, f"{symbol} قبلاً در لیست {group} وجود دارد.")
+        except Exception:
+            debug_mark(bot_1h, m.chat.id, 303, "add_symbol_step_exists")
     show_symbol_menu(m.chat.id, group)
 
 @bot_1h.message_handler(func=lambda m: m.text.startswith("حذف نماد از "))
@@ -309,9 +383,15 @@ def remove_symbol_step(m, group):
     if symbol in symbols:
         symbols.remove(symbol)
         set_symbols(cfg, group, symbols)
-        bot_1h.send_message(m.chat.id, f"{symbol} از لیست {group} حذف شد.")
+        try:
+            bot_1h.send_message(m.chat.id, f"{symbol} از لیست {group} حذف شد.")
+        except Exception:
+            debug_mark(bot_1h, m.chat.id, 304, "remove_symbol_step")
     else:
-        bot_1h.send_message(m.chat.id, f"{symbol} در لیست {group} وجود ندارد.")
+        try:
+            bot_1h.send_message(m.chat.id, f"{symbol} در لیست {group} وجود ندارد.")
+        except Exception:
+            debug_mark(bot_1h, m.chat.id, 305, "remove_symbol_step_not_found")
     show_symbol_menu(m.chat.id, group)
 
 @bot_1h.message_handler(func=lambda m: m.text.startswith("نمایش نمادهای "))
@@ -321,7 +401,14 @@ def show_symbols_any(m):
     symbols = get_symbols(cfg, group)
     txt = f"نمادهای {group}:\n"
     txt += ", ".join(symbols) if symbols else "هیچ نمادی ثبت نشده است."
-    bot_1h.send_message(m.chat.id, txt)
+    try:
+        bot_1h.send_message(m.chat.id, txt)
+    except Exception:
+        debug_mark(bot_1h, m.chat.id, 306, "show_symbols_any")
+
+# =========================
+# تنظیم آلارم‌ها
+# =========================
 
 @bot_1h.message_handler(func=lambda m: m.text == "تنظیم آلارم‌ها")
 def alarms_menu(m):
@@ -340,7 +427,10 @@ def alarms_menu(m):
             f"{key} ({'ON' if cfg.get(key) else 'OFF'})",
             callback_data=f"alarm_{key}"
         ))
-    bot_1h.send_message(m.chat.id, "آلارم‌ها را تنظیم کنید:", reply_markup=kb)
+    try:
+        bot_1h.send_message(m.chat.id, "آلارم‌ها را تنظیم کنید:", reply_markup=kb)
+    except Exception:
+        debug_mark(bot_1h, m.chat.id, 401, "alarms_menu")
 
 @bot_1h.callback_query_handler(func=lambda c: c.data.startswith("alarm_"))
 def toggle_alarm(c):
@@ -348,14 +438,21 @@ def toggle_alarm(c):
     key = c.data.replace("alarm_", "")
     cfg[key] = not cfg.get(key)
     save_config(cfg)
-    bot_1h.answer_callback_query(c.id, f"{key} -> {'ON' if cfg[key] else 'OFF'}")
-    alarms_menu(c.message)
+    try:
+        bot_1h.answer_callback_query(c.id, f"{key} -> {'ON' if cfg[key] else 'OFF'}")
+        alarms_menu(c.message)
+    except Exception:
+        debug_mark(bot_1h, c.message.chat.id, 402, "toggle_alarm")
+
+# =========================
+# گزارش آلارم‌ها
+# =========================
 
 @bot_1h.message_handler(func=lambda m: m.text == "گزارش آلارم‌ها")
 def alarms_report(m):
     txt = ""
-    for group in ["1h","4h","1d","15m","4h"]:
-        if group in LAST_ALARMS and LAST_ALARMS[group]:
+    for group in ["1h","4h","1d","15m"]:
+        if LAST_ALARMS[group]:
             txt += f"آلارم‌های {group}:\n"
             for item in LAST_ALARMS[group]:
                 txt += f"{item['symbol']} ({item['interval']}):\n"
@@ -364,7 +461,14 @@ def alarms_report(m):
                 txt += f"زمان: {item['time']}\n\n"
     if not txt:
         txt = "هیچ آلارمی ثبت نشده است."
-    bot_1h.send_message(m.chat.id, txt)
+    try:
+        bot_1h.send_message(m.chat.id, txt)
+    except Exception:
+        debug_mark(bot_1h, m.chat.id, 501, "alarms_report")
+
+# =========================
+# وضعیت سیستم و تنظیمات پیشرفته
+# =========================
 
 @bot_1h.message_handler(func=lambda m: m.text == "وضعیت سیستم")
 def system_status(m):
@@ -385,7 +489,12 @@ def system_status(m):
     txt += f"enable_4h: {'ON' if cfg.get('enable_4h', True) else 'OFF'}\n"
     txt += f"enable_1d: {'ON' if cfg.get('enable_1d', True) else 'OFF'}\n"
     txt += f"enable_15m: {'ON' if cfg.get('enable_15m', True) else 'OFF'}\n"
-    bot_1h.send_message(m.chat.id, txt)
+    txt += f"lock_timeout_sec: {cfg.get('lock_timeout_sec', 600)}\n"
+    txt += f"cycle_min_duration_sec: {cfg.get('cycle_min_duration_sec', 5)}\n"
+    try:
+        bot_1h.send_message(m.chat.id, txt)
+    except Exception:
+        debug_mark(bot_1h, m.chat.id, 601, "system_status")
 
 @bot_1h.message_handler(func=lambda m: m.text == "تنظیمات پیشرفته")
 def advanced_settings(m):
@@ -403,7 +512,10 @@ def advanced_settings(m):
     kb.add(types.InlineKeyboardButton(f"enable 1d ({'ON' if cfg.get('enable_1d', True) else 'OFF'})", callback_data="adv_enable_1d"))
     kb.add(types.InlineKeyboardButton(f"enable 15m ({'ON' if cfg.get('enable_15m', True) else 'OFF'})", callback_data="adv_enable_15m"))
     kb.add(types.InlineKeyboardButton("ریست کامل برنامه", callback_data="adv_reset_app"))
-    bot_1h.send_message(m.chat.id, "تنظیمات پیشرفته:", reply_markup=kb)
+    try:
+        bot_1h.send_message(m.chat.id, "تنظیمات پیشرفته:", reply_markup=kb)
+    except Exception:
+        debug_mark(bot_1h, m.chat.id, 602, "advanced_settings")
 
 @bot_1h.callback_query_handler(func=lambda c: c.data.startswith("adv_"))
 def advanced_settings_handler(c):
@@ -433,12 +545,26 @@ def advanced_settings_handler(c):
     elif c.data == "adv_reset_app":
         cfg = reset_config()
     save_config(cfg)
-    bot_1h.answer_callback_query(c.id, "تنظیمات اعمال شد.")
-    advanced_settings(c.message)
+    try:
+        bot_1h.answer_callback_query(c.id, "تنظیمات اعمال شد.")
+        advanced_settings(c.message)
+    except Exception:
+        debug_mark(bot_1h, c.message.chat.id, 603, "advanced_settings_handler")
+
+# =========================
+# راهنما
+# =========================
 
 @bot_1h.message_handler(func=lambda m: m.text == "راهنما")
 def help_menu(m):
-    bot_1h.send_message(m.chat.id, HELP_TEXT)
+    try:
+        bot_1h.send_message(m.chat.id, HELP_TEXT)
+    except Exception:
+        debug_mark(bot_1h, m.chat.id, 701, "help_menu")
+
+# =========================
+# دیتا، اندیکاتورها، نمودار
+# =========================
 
 def _binance_interval(i: str) -> str:
     return {"1h": "1h", "4h": "4h", "1d": "1d", "15m": "15m"}[i]
@@ -611,8 +737,12 @@ def detect_alarms(cfg: dict, info: dict, group: str):
         }]
     return alarms
 
+# =========================
+# اجرای سیکل‌ها + verbose + PDF + عکس تجمیعی
+# =========================
+
 def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
-                   lookback_days: int, max_bars: int, max_bars2: int, make_pdf: bool):
+                   lookback_days: int, max_bars: int, make_pdf: bool):
     cfg = load_config()
     verbose = cfg.get(f"verbose_{group}", True)
     batch_size = cfg.get("cycle_progress_batch", 5)
@@ -637,7 +767,10 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
 
     try:
         if verbose:
-            bot.send_message(chat_id, f"شروع چرخه {group}\n{now_utc_str()} UTC")
+            try:
+                bot.send_message(chat_id, f"شروع چرخه {group}\n{now_utc_str()} UTC")
+            except:
+                debug_mark(bot, chat_id, 904, f"run_cycle_start_msg_{group}")
 
         unique_symbols = list(dict.fromkeys(symbols))
         total = len(unique_symbols)
@@ -647,12 +780,15 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
             processed += 1
 
             if verbose and (processed % batch_size == 0 or processed == 1 or processed == total):
-                bot.send_message(chat_id, f"چرخه {group}: {processed}/{total}")
+                try:
+                    bot.send_message(chat_id, f"چرخه {group}: {processed}/{total}")
+                except:
+                    debug_mark(bot, chat_id, 906, f"run_cycle_progress_{group}")
 
             ts = now_utc().strftime("%Y%m%d_%H%M%S")
             png = f"{group}_{sym}_{ts}.png"
 
-            info = create_plotly_chart(sym, interval, lookback_days, max_bars2, png)
+            info = create_plotly_chart(sym, interval, lookback_days, max_bars, png)
             alarms = detect_alarms(cfg, info, group)
 
             if not verbose and not alarms:
@@ -733,8 +869,11 @@ def make_combined_pages_15m(bot, chat_id, image_paths):
         plt.savefig(out_path, dpi=150)
         plt.close()
 
-        with open(out_path, "rb") as f:
-            bot.send_photo(chat_id, f, caption=f"صفحه {idx} – عکس تجمیعی 15m")
+        try:
+            with open(out_path, "rb") as f:
+                bot.send_photo(chat_id, f, caption=f"صفحه {idx} – عکس تجمیعی 15m")
+        except:
+            debug_mark(bot, chat_id, 911, "make_combined_pages_15m_send")
 
 def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str,
               lookback_days: int, max_bars: int, make_pdf: bool):
@@ -762,6 +901,10 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str,
 
     if group == "15m" and cfg.get("make_combined_15m", True):
         make_combined_pages_15m(bot, chat_id, alarm_images)
+
+# =========================
+# اجرای دستی از منوی 1h
+# =========================
 
 @bot_1h.message_handler(func=lambda m: m.text == "اجرای دستی 1h")
 def manual_1h(m):
@@ -814,7 +957,10 @@ def manual_15m(m):
 @bot_1h.message_handler(func=lambda m: m.text == "اجرای چرخه‌ها")
 def run_all_cycles(m):
     cfg = load_config()
-    bot_1h.send_message(m.chat.id, "اجرای همهٔ سیکل‌ها شروع شد.")
+    try:
+        bot_1h.send_message(m.chat.id, "اجرای همهٔ سیکل‌ها شروع شد.")
+    except:
+        debug_mark(bot_1h, m.chat.id, 1001, "run_all_cycles_msg")
 
     if cfg.get("enable_1h", True):
         threading.Thread(
@@ -836,6 +982,10 @@ def run_all_cycles(m):
             target=lambda: run_cycle("15m", bot_15m or bot_1h, m.chat.id, cfg["symbols_15m"], "15m", cfg["lookback_15m"], cfg["max_bars"], False),
             daemon=True
         ).start()
+
+# =========================
+# زمان‌بندی خودکار
+# =========================
 
 def scheduler_loop():
     while True:
@@ -881,6 +1031,10 @@ def scheduler_loop():
             debug_mark(bot_1h, int(ADMIN_CHAT) if ADMIN_CHAT else None, 1201, "scheduler_loop")
 
         time.sleep(60)
+
+# =========================
+# main
+# =========================
 
 def main():
     threading.Thread(target=scheduler_loop, daemon=True).start()
