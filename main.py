@@ -2,11 +2,11 @@
 # Modu Bazler v6 — نسخه‌ی پایدار با:
 # - لینک واقعی تلگرام به نمودار قبلی هر ارز
 # - عکس تجمیعی ۱۲تایی واقعی
-# - تنظیم تعداد کندل از منوی پیشرفته (مضرب ۳۰)
+# - تنظیم تعداد کندل از منوی پیشرفته (مضرب ۳۰، پیش‌فرض ۹۰)
 # - چک یک نماد کاملاً سالم
 # - SmartLock + Watchdog + verbose + PDF
 # - فعال/غیرفعال کردن هر ربات
-# - ساختار کاملاً بازنویسی‌شده و بدون باگ
+# - بدون کرش و حلقه‌های بی‌نهایت
 
 import os, json, time, threading, datetime as dt
 import requests, numpy as np, pandas as pd
@@ -82,8 +82,8 @@ DEFAULT_CONFIG = {
     "enable_15m": True,
 }
 
-# ذخیره پیام قبلی هر ارز برای لینک واقعی
 LAST_MSG_ID = {}
+LAST_ALARMS = {"1h": [], "4h": [], "1d": [], "15m": []}
 
 # =========================
 # توکن‌ها و ربات‌ها
@@ -105,7 +105,7 @@ def debug_mark(bot, chat_id, code: int, where: str):
     msg = f"TEST#{code} @ {where}"
     try:
         if bot and chat_id:
-            bot.send_message(chat_id, msg)
+            bot.send_message(int(chat_id), msg)
         elif ADMIN_CHAT and bot:
             bot.send_message(int(ADMIN_CHAT), msg)
     except:
@@ -188,7 +188,7 @@ CYCLE_LOCKS = {
 # =========================
 
 HELP_TEXT = """
-Modu Bazler v6 — نسخه‌ی پایدار با لینک واقعی نمودار قبلی، عکس تجمیعی ۱۲تایی، تنظیم کندل، SmartLock، Watchdog
+Modu Bazler v6 — لینک واقعی نمودار قبلی، عکس تجمیعی ۱۲تایی، تنظیم کندل، SmartLock، Watchdog
 """
 
 def send_main_menu(chat_id):
@@ -281,41 +281,6 @@ def show_symbols_any(m):
     bot_1h.send_message(m.chat.id, ", ".join(symbols))
 
 # =========================
-# چک یک نماد — کاملاً سالم + لینک واقعی
-# =========================
-
-@bot_1h.message_handler(func=lambda m: m.text == "چک یک نماد")
-def check_one_symbol(m):
-    msg = bot_1h.send_message(m.chat.id, "نماد را وارد کنید (مثال: BTCUSDT):")
-    bot_1h.register_next_step_handler(msg, do_check_one_symbol)
-
-def do_check_one_symbol(m):
-    sym = m.text.strip().upper()
-    cfg = load_config()
-    bars = cfg.get("bars_per_chart", 90)
-    bars = max(30, min(bars, cfg.get("max_bars", 300)))
-
-    ts = now_utc().strftime("%Y%m%d_%H%M%S")
-    png = f"check_{sym}_{ts}.png"
-
-    info = create_plotly_chart(sym, "1h", cfg["lookback_1h"], bars, png)
-    alarms = detect_alarms(cfg, info, "1h")
-
-    caption = f"{sym} (چک 1h)"
-    if alarms:
-        caption += "\n" + "\n".join(alarms)
-
-    # لینک واقعی به پیام قبلی
-    if sym in LAST_MSG_ID:
-        caption += f"\n🔗 نمودار قبلی: https://t.me/c/{m.chat.id}/{LAST_MSG_ID[sym]}"
-
-    with open(info["png_path"], "rb") as f:
-        msg = bot_1h.send_photo(m.chat.id, f, caption=caption)
-
-    LAST_MSG_ID[sym] = msg.message_id
-
-
-# =========================
 # دیتا، اندیکاتورها، نمودار
 # =========================
 
@@ -342,7 +307,7 @@ def fetch_ohlc(symbol: str, interval: str, lookback_days: int, max_bars: int) ->
         df.set_index("t", inplace=True)
         return df
     except Exception:
-        debug_mark(bot_1h, int(ADMIN_CHAT) if ADMIN_CHAT else None, 801, "fetch_ohlc_binance")
+        debug_mark(bot_1h, ADMIN_CHAT, 801, "fetch_ohlc_binance")
     try:
         sym = symbol.replace("USDT", "-USDT")
         end = int(now_utc().timestamp())
@@ -363,7 +328,7 @@ def fetch_ohlc(symbol: str, interval: str, lookback_days: int, max_bars: int) ->
         df.set_index("t", inplace=True)
         return df
     except Exception:
-        debug_mark(bot_1h, int(ADMIN_CHAT) if ADMIN_CHAT else None, 802, "fetch_ohlc_kucoin")
+        debug_mark(bot_1h, ADMIN_CHAT, 802, "fetch_ohlc_kucoin")
         return pd.DataFrame()
 
 def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
@@ -395,7 +360,7 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
         df["MACD_signal"] = df["MACD"].ewm(span=9, adjust=False).mean()
         df["MACD_hist"] = df["MACD"] - df["MACD_signal"]
     except Exception:
-        debug_mark(bot_1h, int(ADMIN_CHAT) if ADMIN_CHAT else None, 803, "compute_indicators")
+        debug_mark(bot_1h, ADMIN_CHAT, 803, "compute_indicators")
     return df
 
 def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars: int, png_name: str):
@@ -498,13 +463,13 @@ def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars
         )
         fig.update_yaxes(side="right", showgrid=True)
     except Exception:
-        debug_mark(bot_1h, int(ADMIN_CHAT) if ADMIN_CHAT else None, 804, "create_plotly_chart_build")
+        debug_mark(bot_1h, ADMIN_CHAT, 804, "create_plotly_chart_build")
 
     png_path = os.path.join(CHARTS_DIR, png_name)
     try:
         fig.write_image(png_path, width=1800, height=1100, scale=3)
     except Exception:
-        debug_mark(bot_1h, int(ADMIN_CHAT) if ADMIN_CHAT else None, 805, "create_plotly_chart_write")
+        debug_mark(bot_1h, ADMIN_CHAT, 805, "create_plotly_chart_write")
 
     return {
         "symbol": symbol,
@@ -521,13 +486,6 @@ def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars
 # =========================
 # آلارم‌ها
 # =========================
-
-LAST_ALARMS = {
-    "1h": [],
-    "4h": [],
-    "1d": [],
-    "15m": []
-}
 
 def detect_alarms(cfg: dict, info: dict, group: str):
     alarms = []
@@ -600,6 +558,38 @@ def alarms_report(m):
         txt = "هیچ آلارمی ثبت نشده است."
     bot_1h.send_message(m.chat.id, txt)
 
+# =========================
+# چک یک نماد — لینک واقعی
+# =========================
+
+@bot_1h.message_handler(func=lambda m: m.text == "چک یک نماد")
+def check_one_symbol(m):
+    msg = bot_1h.send_message(m.chat.id, "نماد را وارد کنید (مثال: BTCUSDT):")
+    bot_1h.register_next_step_handler(msg, do_check_one_symbol)
+
+def do_check_one_symbol(m):
+    sym = m.text.strip().upper()
+    cfg = load_config()
+    bars = cfg.get("bars_per_chart", 90)
+    bars = max(30, min(bars, cfg.get("max_bars", 300)))
+
+    ts = now_utc().strftime("%Y%m%d_%H%M%S")
+    png = f"check_{sym}_{ts}.png"
+
+    info = create_plotly_chart(sym, "1h", cfg["lookback_1h"], bars, png)
+    alarms = detect_alarms(cfg, info, "1h")
+
+    caption = f"{sym} (چک 1h)"
+    if alarms:
+        caption += "\n" + "\n".join(alarms)
+
+    if sym in LAST_MSG_ID:
+        caption += f"\n🔗 نمودار قبلی: https://t.me/c/{m.chat.id}/{LAST_MSG_ID[sym]}"
+
+    with open(info["png_path"], "rb") as f:
+        msg = bot_1h.send_photo(m.chat.id, f, caption=caption)
+
+    LAST_MSG_ID[sym] = msg.message_id
 
 # =========================
 # وضعیت سیستم و تنظیمات پیشرفته
@@ -740,7 +730,7 @@ def make_combined_pages(group: str, bot, chat_id: int, image_paths):
             bot.send_photo(chat_id, f, caption=f"📄 صفحه {idx} – عکس تجمیعی {group}")
 
 # =========================
-# اجرای سیکل‌ها + verbose + PDF + لینک قبلی + عکس تجمیعی
+# اجرای سیکل‌ها
 # =========================
 
 def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
@@ -805,7 +795,6 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
             if alarms:
                 caption += "\n" + "\n".join(alarms)
 
-            # لینک واقعی به پیام قبلی
             if sym in LAST_MSG_ID:
                 caption += f"\n🔗 نمودار قبلی: https://t.me/c/{chat_id}/{LAST_MSG_ID[sym]}"
 
@@ -865,6 +854,7 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str,
     elapsed = (end - start).total_seconds()
     if elapsed < min_dur:
         debug_mark(bot, chat_id, 2001, f"run_cycle_fallback_{group}")
+        # فقط یک بار fallback، بدون حلقه بی‌نهایت
         alarm_images = run_cycle_once(group, bot, chat_id, symbols, interval, lookback_days, max_bars, make_pdf)
 
     if cfg.get("make_combined_all", True):
@@ -897,7 +887,6 @@ def manual_1h(m):
         daemon=True
     ).start()
 
-
 @bot_1h.message_handler(func=lambda m: m.text == "اجرای فوری 4h")
 def manual_4h(m):
     cfg = load_config()
@@ -920,7 +909,6 @@ def manual_4h(m):
         ),
         daemon=True
     ).start()
-
 
 @bot_1h.message_handler(func=lambda m: m.text == "اجرای فوری 1d")
 def manual_1d(m):
@@ -945,7 +933,6 @@ def manual_1d(m):
         daemon=True
     ).start()
 
-
 @bot_1h.message_handler(func=lambda m: m.text == "اجرای فوری 15m")
 def manual_15m(m):
     cfg = load_config()
@@ -968,11 +955,6 @@ def manual_15m(m):
         ),
         daemon=True
     ).start()
-
-
-# =========================
-# اجرای همهٔ سیکل‌ها
-# =========================
 
 @bot_1h.message_handler(func=lambda m: m.text == "اجرای چرخه‌ها")
 def run_all_cycles(m):
@@ -1040,7 +1022,6 @@ def run_all_cycles(m):
             daemon=True
         ).start()
 
-
 # =========================
 # زمان‌بندی خودکار
 # =========================
@@ -1054,24 +1035,21 @@ def scheduler_loop():
 
             cfg = load_config()
 
-            # 1h — هر ساعت در دقیقه 22
-            if minute == 22 and cfg.get("enable_1h", True):
-                if cfg.get("chat_id_1h"):
-                    threading.Thread(
-                        target=lambda: run_cycle(
-                            "1h",
-                            bot_1h,
-                            cfg["chat_id_1h"],
-                            cfg["symbols_1h"],
-                            "1h",
-                            cfg["lookback_1h"],
-                            cfg["max_bars"],
-                            cfg["make_pdf_1h"]
-                        ),
-                        daemon=True
-                    ).start()
+            if minute == 22 and cfg.get("enable_1h", True) and cfg.get("chat_id_1h"):
+                threading.Thread(
+                    target=lambda: run_cycle(
+                        "1h",
+                        bot_1h,
+                        cfg["chat_id_1h"],
+                        cfg["symbols_1h"],
+                        "1h",
+                        cfg["lookback_1h"],
+                        cfg["max_bars"],
+                        cfg["make_pdf_1h"]
+                    ),
+                    daemon=True
+                ).start()
 
-            # 4h — ساعت‌های 2، 6، 10، 14، 18، 22 در دقیقه 7
             if minute == 7 and hour in [2,6,10,14,18,22] and cfg.get("enable_4h", True):
                 ch = cfg.get("chat_id_4h") or cfg.get("chat_id_1h")
                 if ch:
@@ -1089,7 +1067,6 @@ def scheduler_loop():
                         daemon=True
                     ).start()
 
-            # 1d — هر روز ساعت 1:05
             if hour == 1 and minute == 5 and cfg.get("enable_1d", True):
                 ch = cfg.get("chat_id_1d") or cfg.get("chat_id_1h")
                 if ch:
@@ -1107,7 +1084,6 @@ def scheduler_loop():
                         daemon=True
                     ).start()
 
-            # 15m — هر ۱۵ دقیقه
             if minute % 15 == 0 and cfg.get("enable_15m", True):
                 ch = cfg.get("chat_id_15m") or cfg.get("chat_id_1h")
                 if ch:
@@ -1126,10 +1102,9 @@ def scheduler_loop():
                     ).start()
 
         except Exception:
-            debug_mark(bot_1h, int(ADMIN_CHAT) if ADMIN_CHAT else None, 1201, "scheduler_loop")
+            debug_mark(bot_1h, ADMIN_CHAT, 1201, "scheduler_loop")
 
         time.sleep(60)
-
 
 # =========================
 # main
@@ -1142,7 +1117,6 @@ def main():
         bot_1h.infinity_polling()
     else:
         print("توکن ربات 1h تنظیم نشده است.")
-
 
 if __name__ == "__main__":
     main()
