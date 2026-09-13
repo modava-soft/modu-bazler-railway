@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Modu Bazler v5.3 – نسخه‌ی پایدار با SmartLock، Watchdog، verbose و عکس تجمیعی 15m
+# Modu Bazler v5.3 – نسخه‌ی پایدار با SmartLock، Watchdog، verbose و عکس تجمیعی 12تایی
 
 import os, json, time, threading, datetime as dt
 import requests, numpy as np, pandas as pd
@@ -57,7 +57,9 @@ DEFAULT_CONFIG = {
     "lookback_4h": 15,
     "lookback_1d": 180,
     "lookback_15m": 3,
-    "max_bars": 300,
+
+    "max_bars": 300,          # سقف کلی برای دریافت دیتا
+    "bars_per_chart": 90,     # تعداد کندل هر نمودار (مضرب 30، پیش‌فرض 90)
 
     "alarm_wma_direction": True,
     "alarm_cross_sma20": False,
@@ -69,7 +71,9 @@ DEFAULT_CONFIG = {
 
     "make_pdf_1h": True,
     "make_pdf_1d": True,
-    "make_combined_15m": True,
+
+    "make_combined_15m": True,   # قبلی
+    "make_combined_all": True,   # عکس تجمیعی 12تایی در پایان هر سیکل
 
     "chat_id_1h": None,
     "chat_id_4h": None,
@@ -208,7 +212,7 @@ CYCLE_LOCKS = {
 # =========================
 
 HELP_TEXT = """
-Modu Bazler v5.3 – SmartLock + Watchdog + verbose + عکس تجمیعی 15m
+Modu Bazler v5.3 – SmartLock + Watchdog + verbose + عکس تجمیعی 12تایی
 
 🧭 منوی ربات 1h:
 - چک یک نماد
@@ -478,9 +482,11 @@ def system_status(m):
     txt += f"نمادهای 4h: {len(cfg['symbols_4h'])}\n"
     txt += f"نمادهای 1d: {len(cfg['symbols_1d'])}\n"
     txt += f"نمادهای 15m: {len(cfg['symbols_15m'])}\n"
+    txt += f"bars_per_chart: {cfg.get('bars_per_chart', 90)}\n"
     txt += f"PDF 1h: {'ON' if cfg['make_pdf_1h'] else 'OFF'}\n"
     txt += f"PDF 1d: {'ON' if cfg['make_pdf_1d'] else 'OFF'}\n"
     txt += f"Combined 15m: {'ON' if cfg.get('make_combined_15m', True) else 'OFF'}\n"
+    txt += f"Combined all: {'ON' if cfg.get('make_combined_all', True) else 'OFF'}\n"
     txt += f"verbose 1h: {'ON' if cfg['verbose_1h'] else 'OFF'}\n"
     txt += f"verbose 4h: {'ON' if cfg['verbose_4h'] else 'OFF'}\n"
     txt += f"verbose 1d: {'ON' if cfg['verbose_1d'] else 'OFF'}\n"
@@ -503,6 +509,9 @@ def advanced_settings(m):
     kb.add(types.InlineKeyboardButton(f"PDF 1h ({'ON' if cfg['make_pdf_1h'] else 'OFF'})", callback_data="adv_pdf_1h"))
     kb.add(types.InlineKeyboardButton(f"PDF 1d ({'ON' if cfg['make_pdf_1d'] else 'OFF'})", callback_data="adv_pdf_1d"))
     kb.add(types.InlineKeyboardButton(f"Combined 15m ({'ON' if cfg.get('make_combined_15m', True) else 'OFF'})", callback_data="adv_combined_15m"))
+    kb.add(types.InlineKeyboardButton(f"Combined all ({'ON' if cfg.get('make_combined_all', True) else 'OFF'})", callback_data="adv_combined_all"))
+    kb.add(types.InlineKeyboardButton(f"کندل +30 (فعلی {cfg.get('bars_per_chart',90)})", callback_data="adv_bars_plus"))
+    kb.add(types.InlineKeyboardButton("کندل -30", callback_data="adv_bars_minus"))
     kb.add(types.InlineKeyboardButton(f"verbose 1h ({'ON' if cfg['verbose_1h'] else 'OFF'})", callback_data="adv_verbose_1h"))
     kb.add(types.InlineKeyboardButton(f"verbose 4h ({'ON' if cfg['verbose_4h'] else 'OFF'})", callback_data="adv_verbose_4h"))
     kb.add(types.InlineKeyboardButton(f"verbose 1d ({'ON' if cfg['verbose_1d'] else 'OFF'})", callback_data="adv_verbose_1d"))
@@ -526,6 +535,16 @@ def advanced_settings_handler(c):
         cfg["make_pdf_1d"] = not cfg["make_pdf_1d"]
     elif c.data == "adv_combined_15m":
         cfg["make_combined_15m"] = not cfg.get("make_combined_15m", True)
+    elif c.data == "adv_combined_all":
+        cfg["make_combined_all"] = not cfg.get("make_combined_all", True)
+    elif c.data == "adv_bars_plus":
+        bars = cfg.get("bars_per_chart", 90) + 30
+        if bars > cfg.get("max_bars", 300):
+            bars = cfg.get("max_bars", 300)
+        cfg["bars_per_chart"] = max(30, bars)
+    elif c.data == "adv_bars_minus":
+        bars = cfg.get("bars_per_chart", 90) - 30
+        cfg["bars_per_chart"] = max(30, bars)
     elif c.data == "adv_verbose_1h":
         cfg["verbose_1h"] = not cfg["verbose_1h"]
     elif c.data == "adv_verbose_4h":
@@ -748,6 +767,9 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
     batch_size = cfg.get("cycle_progress_batch", 5)
     lock = CYCLE_LOCKS[group]
 
+    bars_per_chart = cfg.get("bars_per_chart", max_bars)
+    bars_per_chart = max(30, min(bars_per_chart, max_bars))
+
     if not lock.acquire(blocking=False):
         debug_mark(bot, chat_id, 902, f"run_cycle_lock_busy_{group}")
         return []
@@ -788,7 +810,7 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
             ts = now_utc().strftime("%Y%m%d_%H%M%S")
             png = f"{group}_{sym}_{ts}.png"
 
-            info = create_plotly_chart(sym, interval, lookback_days, max_bars, png)
+            info = create_plotly_chart(sym, interval, lookback_days, bars_per_chart, png)
             alarms = detect_alarms(cfg, info, group)
 
             if not verbose and not alarms:
@@ -833,7 +855,7 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
     finally:
         lock.release()
 
-def make_combined_pages_15m(bot, chat_id, image_paths):
+def make_combined_pages(group: str, bot, chat_id, image_paths):
     if not image_paths:
         return
 
@@ -864,16 +886,16 @@ def make_combined_pages_15m(bot, chat_id, image_paths):
         for ax in axes[len(pg):]:
             ax.axis("off")
 
-        out_path = os.path.join(CHARTS_DIR, f"combined_15m_page_{idx}.png")
+        out_path = os.path.join(CHARTS_DIR, f"combined_{group}_page_{idx}.png")
         plt.tight_layout()
         plt.savefig(out_path, dpi=150)
         plt.close()
 
         try:
             with open(out_path, "rb") as f:
-                bot.send_photo(chat_id, f, caption=f"صفحه {idx} – عکس تجمیعی 15m")
+                bot.send_photo(chat_id, f, caption=f"صفحه {idx} – عکس تجمیعی {group}")
         except:
-            debug_mark(bot, chat_id, 911, "make_combined_pages_15m_send")
+            debug_mark(bot, chat_id, 911, "make_combined_pages_send")
 
 def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str,
               lookback_days: int, max_bars: int, make_pdf: bool):
@@ -899,8 +921,35 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str,
         debug_mark(bot, chat_id, 2001, f"run_cycle_fallback_{group}")
         alarm_images = run_cycle_once(group, bot, chat_id, symbols, interval, lookback_days, max_bars, make_pdf)
 
-    if group == "15m" and cfg.get("make_combined_15m", True):
-        make_combined_pages_15m(bot, chat_id, alarm_images)
+    if cfg.get("make_combined_all", True):
+        make_combined_pages(group, bot, chat_id, alarm_images)
+
+# =========================
+# چک یک نماد (1h)
+# =========================
+
+@bot_1h.message_handler(func=lambda m: m.text == "چک یک نماد")
+def check_one_symbol(m):
+    msg = bot_1h.send_message(m.chat.id, "نماد را وارد کنید (مثال: BTCUSDT):")
+    bot_1h.register_next_step_handler(msg, do_check_one_symbol)
+
+def do_check_one_symbol(m):
+    sym = m.text.strip().upper()
+    cfg = load_config()
+    bars = cfg.get("bars_per_chart", cfg.get("max_bars", 300))
+    bars = max(30, min(bars, cfg.get("max_bars", 300)))
+    ts = now_utc().strftime("%Y%m%d_%H%M%S")
+    png = f"check_{sym}_{ts}.png"
+    info = create_plotly_chart(sym, "1h", cfg["lookback_1h"], bars, png)
+    alarms = detect_alarms(cfg, info, "1h")
+    caption = f"{sym} (چک 1h)"
+    if alarms:
+        caption += "\n" + "\n".join(alarms)
+    try:
+        with open(info["png_path"], "rb") as f:
+            bot_1h.send_photo(m.chat.id, f, caption=caption)
+    except Exception:
+        debug_mark(bot_1h, m.chat.id, 702, "check_one_symbol_send")
 
 # =========================
 # اجرای دستی از منوی 1h
