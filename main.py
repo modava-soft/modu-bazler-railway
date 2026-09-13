@@ -1,12 +1,5 @@
 # -*- coding: utf-8 -*-
-# Modu Bazler v6 — نسخه‌ی پایدار
-# - مدیریت نمادها مثل قبل (منوی 1h / 4h / 1d / 15m کاملاً فعال)
-# - تعداد نمادها شبیه نسخه‌های قبلی (لیست گسترده‌تر)
-# - لینک واقعی تلگرام به نمودار قبلی هر ارز
-# - عکس تجمیعی ۱۲تایی
-# - تنظیم تعداد کندل (مضرب ۳۰، پیش‌فرض ۹۰)
-# - چک یک نماد سالم
-# - SmartLock + Watchdog + PDF + زمان‌بندی
+# Modu Bazler v6 — نسخه پایدار کامل
 
 import os, json, time, threading, datetime as dt
 import requests, numpy as np, pandas as pd
@@ -52,7 +45,7 @@ DEFAULT_CONFIG = {
     "lookback_15m": 3,
 
     "max_bars":       300,
-    "bars_per_chart": 90,
+    "bars_per_chart": 90,   # مضرب ۳۰
 
     "alarm_wma_direction":   True,
     "alarm_cross_sma20":     False,
@@ -230,7 +223,7 @@ def reset_app(m):
     send_main_menu(m.chat.id)
 
 # =========================
-# مدیریت نمادها (منوها مثل قبل)
+# مدیریت نمادها
 # =========================
 
 def get_symbols(cfg, group):
@@ -310,7 +303,7 @@ def show_symbols_any(m):
     bot_1h.send_message(m.chat.id, ", ".join(symbols))
 
 # =========================
-# تنظیم آلارم‌ها (ساده و مثل قبل)
+# تنظیم آلارم‌ها
 # =========================
 
 @bot_1h.message_handler(func=lambda m: m.text == "تنظیم آلارم‌ها")
@@ -348,7 +341,7 @@ def alarm_settings_handler(c):
     alarm_settings(c.message)
 
 # =========================
-# دیتا، اندیکاتورها، نمودار
+# دریافت دیتا از صرافی‌ها
 # =========================
 
 def _binance_interval(i: str) -> str:
@@ -359,6 +352,8 @@ def _kucoin_interval(i: str) -> str:
 
 def fetch_ohlc(symbol: str, interval: str, lookback_days: int, max_bars: int) -> pd.DataFrame:
     limit = max(500, max_bars)
+
+    # --- Binance ---
     try:
         url = "https://api.binance.com/api/v3/klines"
         r = requests.get(url, params={
@@ -375,6 +370,8 @@ def fetch_ohlc(symbol: str, interval: str, lookback_days: int, max_bars: int) ->
         return df
     except Exception:
         debug_mark(bot_1h, ADMIN_CHAT, 801, "fetch_ohlc_binance")
+
+    # --- KuCoin ---
     try:
         sym = symbol.replace("USDT", "-USDT")
         end = int(now_utc().timestamp())
@@ -398,10 +395,15 @@ def fetch_ohlc(symbol: str, interval: str, lookback_days: int, max_bars: int) ->
         debug_mark(bot_1h, ADMIN_CHAT, 802, "fetch_ohlc_kucoin")
         return pd.DataFrame()
 
+# =========================
+# محاسبه اندیکاتورها
+# =========================
+
 def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     if df.empty:
         return df
+
     try:
         df["SMA20"]  = df["c"].rolling(20).mean()
         df["SMA100"] = df["c"].rolling(100).mean()
@@ -426,12 +428,19 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
         df["MACD"] = ema12 - ema26
         df["MACD_signal"] = df["MACD"].ewm(span=9, adjust=False).mean()
         df["MACD_hist"] = df["MACD"] - df["MACD_signal"]
+
     except Exception:
         debug_mark(bot_1h, ADMIN_CHAT, 803, "compute_indicators")
+
     return df
+
+# =========================
+# ساخت نمودار Plotly
+# =========================
 
 def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars: int, png_name: str):
     df = fetch_ohlc(symbol, interval, lookback_days, max_bars)
+
     if df.empty:
         df = pd.DataFrame(columns=["o","h","l","c","v"])
         df.index = pd.to_datetime([])
@@ -460,60 +469,25 @@ def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars
             row=1, col=1
         )
 
-        fig.add_trace(
-            go.Scatter(x=df.index, y=df["SMA20"],  mode="lines", name="SMA20",  line=dict(color="blue")),
-            row=1, col=1
-        )
-        fig.add_trace(
-            go.Scatter(x=df.index, y=df["SMA100"], mode="lines", name="SMA100", line=dict(color="orange")),
-            row=1, col=1
-        )
-        fig.add_trace(
-            go.Scatter(x=df.index, y=df["SMA200"], mode="lines", name="SMA200", line=dict(color="purple")),
-            row=1, col=1
-        )
+        fig.add_trace(go.Scatter(x=df.index, y=df["SMA20"],  mode="lines", name="SMA20",  line=dict(color="blue")),   row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df["SMA100"], mode="lines", name="SMA100", line=dict(color="orange")), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df["SMA200"], mode="lines", name="SMA200", line=dict(color="purple")), row=1, col=1)
 
         wma   = df["WMA20"]
         slope = df["WMA20_slope"]
         wma_up   = wma.where(slope >= 0)
         wma_down = wma.where(slope < 0)
 
-        fig.add_trace(
-            go.Scatter(
-                x=df.index, y=wma_up,
-                mode="lines", name="WMA20 Up",
-                line=dict(color="green", width=2, dash="dot")
-            ),
-            row=1, col=1
-        )
-        fig.add_trace(
-            go.Scatter(
-                x=df.index, y=wma_down,
-                mode="lines", name="WMA20 Down",
-                line=dict(color="red", width=2, dash="dot")
-            ),
-            row=1, col=1
-        )
+        fig.add_trace(go.Scatter(x=df.index, y=wma_up,   mode="lines", name="WMA20 Up",   line=dict(color="green", width=2, dash="dot")), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=wma_down, mode="lines", name="WMA20 Down", line=dict(color="red",   width=2, dash="dot")), row=1, col=1)
 
-        fig.add_trace(
-            go.Scatter(x=df.index, y=df["RSI14"], mode="lines", name="RSI14", line=dict(color="brown")),
-            row=2, col=1
-        )
+        fig.add_trace(go.Scatter(x=df.index, y=df["RSI14"], mode="lines", name="RSI14", line=dict(color="brown")), row=2, col=1)
         fig.add_hline(y=70, line=dict(color="red", dash="dash"), row=2, col=1)
         fig.add_hline(y=30, line=dict(color="green", dash="dash"), row=2, col=1)
 
-        fig.add_trace(
-            go.Scatter(x=df.index, y=df["MACD"],        mode="lines", name="MACD",   line=dict(color="black")),
-            row=3, col=1
-        )
-        fig.add_trace(
-            go.Scatter(x=df.index, y=df["MACD_signal"], mode="lines", name="Signal", line=dict(color="magenta")),
-            row=3, col=1
-        )
-        fig.add_trace(
-            go.Bar(x=df.index, y=df["MACD_hist"], name="Hist", marker_color="gray"),
-            row=3, col=1
-        )
+        fig.add_trace(go.Scatter(x=df.index, y=df["MACD"],        mode="lines", name="MACD",   line=dict(color="black")),   row=3, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df["MACD_signal"], mode="lines", name="Signal", line=dict(color="magenta")), row=3, col=1)
+        fig.add_trace(go.Bar(x=df.index, y=df["MACD_hist"], name="Hist", marker_color="gray"), row=3, col=1)
 
         fig.update_layout(
             title=f"{symbol} – {interval}",
@@ -521,6 +495,7 @@ def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars
             template="plotly_white",
             height=1000
         )
+
         fig.add_annotation(
             text=f"{symbol} – {interval}",
             xref="paper", yref="paper",
@@ -528,11 +503,14 @@ def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars
             showarrow=False,
             font=dict(size=30, color="black")
         )
+
         fig.update_yaxes(side="right", showgrid=True)
+
     except Exception:
         debug_mark(bot_1h, ADMIN_CHAT, 804, "create_plotly_chart_build")
 
     png_path = os.path.join(CHARTS_DIR, png_name)
+
     try:
         fig.write_image(png_path, width=1800, height=1100, scale=3)
     except Exception:
@@ -551,7 +529,7 @@ def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars
     }
 
 # =========================
-# آلارم‌ها
+# آلارم‌ها — نسخه اصلاح‌شده کامل
 # =========================
 
 def detect_alarms(cfg: dict, info: dict, group: str):
@@ -565,12 +543,14 @@ def detect_alarms(cfg: dict, info: dict, group: str):
     if len(wma) < 3:
         return alarms
 
+    # --- WMA20 جهت ---
     if cfg.get("alarm_wma_direction", True):
         if slope[-2] < 0 and slope[-1] > 0:
             alarms.append("WMA20 جهت رو به بالا گرفت")
         if slope[-2] > 0 and slope[-1] < 0:
             alarms.append("WMA20 جهت رو به پایین گرفت")
 
+    # --- برخوردها ---
     def cross(a, b):
         if len(a) < 2 or len(b) < 2:
             return False
@@ -583,6 +563,7 @@ def detect_alarms(cfg: dict, info: dict, group: str):
     if cfg.get("alarm_cross_sma200", False) and cross(wma, sma200):
         alarms.append("برخورد WMA20 با SMA200")
 
+    # --- جهت SMA ---
     def dir_change(arr, name):
         if len(arr) < 3:
             return
@@ -600,30 +581,17 @@ def detect_alarms(cfg: dict, info: dict, group: str):
     if cfg.get("alarm_sma200_direction", False):
         dir_change(sma200, "SMA200")
 
+    # --- ذخیره‌سازی صحیح آلارم‌ها ---
     if alarms:
-        LAST_ALARMS[group] = [{
-            "symbol":  info["symbol"],
-            "interval":info["interval"],
-            "time":    info["created_at"],
-            "alarms":  alarms
-        }]
+        LAST_ALARMS[group].append({
+            "symbol": info["symbol"],
+            "interval": info["interval"],
+            "time": info["created_at"],
+            "alarms": alarms
+        })
 
     return alarms
 
-@bot_1h.message_handler(func=lambda m: m.text == "گزارش آلارم‌ها")
-def alarms_report(m):
-    txt = ""
-    for group in ["1h","4h","1d","15m"]:
-        if LAST_ALARMS[group]:
-            txt += f"آلارم‌های {group}:\n"
-            for item in LAST_ALARMS[group]:
-                txt += f"{item['symbol']} ({item['interval']}):\n"
-                for a in item["alarms"]:
-                    txt += f" - {a}\n"
-                txt += f"زمان: {item['time']}\n\n"
-    if not txt:
-        txt = "هیچ آلارمی ثبت نشده است."
-    bot_1h.send_message(m.chat.id, txt)
 
 # =========================
 # چک یک نماد — لینک واقعی
@@ -648,7 +616,9 @@ def do_check_one_symbol(m):
 
     caption = f"{sym} (چک 1h)"
     if alarms:
-        caption += "\n" + "\n".join(alarms)
+        caption += "\n🔔 آلارم‌ها:"
+        for a in alarms:
+            caption += f"\n - {a}"
 
     if sym in LAST_MSG_ID:
         caption += f"\n🔗 نمودار قبلی: https://t.me/c/{m.chat.id}/{LAST_MSG_ID[sym]}"
@@ -659,7 +629,7 @@ def do_check_one_symbol(m):
     LAST_MSG_ID[sym] = msg.message_id
 
 # =========================
-# وضعیت سیستم و تنظیمات پیشرفته
+# وضعیت سیستم
 # =========================
 
 @bot_1h.message_handler(func=lambda m: m.text == "وضعیت سیستم")
@@ -686,6 +656,10 @@ def system_status(m):
     txt += f"lock_timeout_sec: {cfg.get('lock_timeout_sec', 600)}\n"
     txt += f"cycle_min_duration_sec: {cfg.get('cycle_min_duration_sec', 5)}\n"
     bot_1h.send_message(m.chat.id, txt)
+
+# =========================
+# تنظیمات پیشرفته
+# =========================
 
 @bot_1h.message_handler(func=lambda m: m.text == "تنظیمات پیشرفته")
 def advanced_settings(m):
@@ -745,13 +719,10 @@ def advanced_settings_handler(c):
         cfg["enable_15m"] = not cfg.get("enable_15m", True)
     elif c.data == "adv_reset_app":
         cfg = reset_config()
+
     save_config(cfg)
     bot_1h.answer_callback_query(c.id, "تنظیمات اعمال شد.")
     advanced_settings(c.message)
-
-@bot_1h.message_handler(func=lambda m: m.text == "راهنما")
-def help_menu(m):
-    bot_1h.send_message(m.chat.id, HELP_TEXT)
 
 # =========================
 # عکس تجمیعی ۱۲تایی
@@ -802,6 +773,7 @@ def make_combined_pages(group: str, bot, chat_id: int, image_paths):
 
 def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
                    lookback_days: int, max_bars: int, make_pdf: bool):
+
     cfg       = load_config()
     verbose   = cfg.get(f"verbose_{group}", True)
     batch_size= cfg.get("cycle_progress_batch", 5)
@@ -860,7 +832,9 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
 
             caption = f"{sym} ({group})"
             if alarms:
-                caption += "\n" + "\n".join(alarms)
+                caption += "\n🔔 آلارم‌ها:"
+                for a in alarms:
+                    caption += f"\n - {a}"
 
             if sym in LAST_MSG_ID:
                 caption += f"\n🔗 نمودار قبلی: https://t.me/c/{chat_id}/{LAST_MSG_ID[sym]}"
@@ -901,6 +875,7 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
 
 def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str,
               lookback_days: int, max_bars: int, make_pdf: bool):
+
     cfg = load_config()
 
     if group == "1h"  and not cfg.get("enable_1h",  True): return
@@ -924,160 +899,6 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str,
         make_combined_pages(group, bot, chat_id, alarm_images)
 
 # =========================
-# اجرای دستی از منوی 1h
-# =========================
-
-@bot_1h.message_handler(func=lambda m: m.text == "اجرای دستی 1h")
-def manual_1h(m):
-    cfg = load_config()
-    if not cfg.get("enable_1h", True):
-        bot_1h.send_message(m.chat.id, "ربات 1h غیرفعال است.")
-        return
-
-    threading.Thread(
-        target=lambda: run_cycle(
-            "1h",
-            bot_1h,
-            m.chat.id,
-            cfg["symbols_1h"],
-            "1h",
-            cfg["lookback_1h"],
-            cfg["max_bars"],
-            cfg["make_pdf_1h"]
-        ),
-        daemon=True
-    ).start()
-
-@bot_1h.message_handler(func=lambda m: m.text == "اجرای فوری 4h")
-def manual_4h(m):
-    cfg = load_config()
-    if not cfg.get("enable_4h", True):
-        bot_1h.send_message(m.chat.id, "ربات 4h غیرفعال است.")
-        return
-
-    threading.Thread(
-        target=lambda: run_cycle(
-            "4h",
-            bot_4h or bot_1h,
-            m.chat.id,
-            cfg["symbols_4h"],
-            "4h",
-            cfg["lookback_4h"],
-            cfg["max_bars"],
-            False
-        ),
-        daemon=True
-    ).start()
-
-@bot_1h.message_handler(func=lambda m: m.text == "اجرای فوری 1d")
-def manual_1d(m):
-    cfg = load_config()
-    if not cfg.get("enable_1d", True):
-        bot_1h.send_message(m.chat.id, "ربات 1d غیرفعال است.")
-        return
-
-    threading.Thread(
-        target=lambda: run_cycle(
-            "1d",
-            bot_1d or bot_1h,
-            m.chat.id,
-            cfg["symbols_1d"],
-            "1d",
-            cfg["lookback_1d"],
-            cfg["max_bars"],
-            cfg["make_pdf_1d"]
-        ),
-        daemon=True
-    ).start()
-
-@bot_1h.message_handler(func=lambda m: m.text == "اجرای فوری 15m")
-def manual_15m(m):
-    cfg = load_config()
-    if not cfg.get("enable_15m", True):
-        bot_1h.send_message(m.chat.id, "ربات 15m غیرفعال است.")
-        return
-
-    threading.Thread(
-        target=lambda: run_cycle(
-            "15m",
-            bot_15m or bot_1h,
-            m.chat.id,
-            cfg["symbols_15m"],
-            "15m",
-            cfg["lookback_15m"],
-            cfg["max_bars"],
-            False
-        ),
-        daemon=True
-    ).start()
-
-@bot_1h.message_handler(func=lambda m: m.text == "اجرای چرخه‌ها")
-def run_all_cycles(m):
-    cfg = load_config()
-
-    bot_1h.send_message(m.chat.id, "اجرای همهٔ سیکل‌ها شروع شد.")
-
-    if cfg.get("enable_1h", True):
-        threading.Thread(
-            target=lambda: run_cycle(
-                "1h",
-                bot_1h,
-                m.chat.id,
-                cfg["symbols_1h"],
-                "1h",
-                cfg["lookback_1h"],
-                cfg["max_bars"],
-                cfg["make_pdf_1h"]
-            ),
-            daemon=True
-        ).start()
-
-    if cfg.get("enable_4h", True):
-        threading.Thread(
-            target=lambda: run_cycle(
-                "4h",
-                bot_4h or bot_1h,
-                m.chat.id,
-                cfg["symbols_4h"],
-                "4h",
-                cfg["lookback_4h"],
-                cfg["max_bars"],
-                False
-            ),
-            daemon=True
-        ).start()
-
-    if cfg.get("enable_1d", True):
-        threading.Thread(
-            target=lambda: run_cycle(
-                "1d",
-                bot_1d or bot_1h,
-                m.chat.id,
-                cfg["symbols_1d"],
-                "1d",
-                cfg["lookback_1d"],
-                cfg["max_bars"],
-                cfg["make_pdf_1d"]
-            ),
-            daemon=True
-        ).start()
-
-    if cfg.get("enable_15m", True):
-        threading.Thread(
-            target=lambda: run_cycle(
-                "15m",
-                bot_15m or bot_1h,
-                m.chat.id,
-                cfg["symbols_15m"],
-                "15m",
-                cfg["lookback_15m"],
-                cfg["max_bars"],
-                False
-            ),
-            daemon=True
-        ).start()
-
-# =========================
 # زمان‌بندی خودکار
 # =========================
 
@@ -1090,6 +911,7 @@ def scheduler_loop():
 
             cfg = load_config()
 
+            # --- سیکل 1h ---
             if minute == 22 and cfg.get("enable_1h", True) and cfg.get("chat_id_1h"):
                 threading.Thread(
                     target=lambda: run_cycle(
@@ -1105,6 +927,7 @@ def scheduler_loop():
                     daemon=True
                 ).start()
 
+            # --- سیکل 4h ---
             if minute == 7 and hour in [2,6,10,14,18,22] and cfg.get("enable_4h", True):
                 ch = cfg.get("chat_id_4h") or cfg.get("chat_id_1h")
                 if ch:
@@ -1122,6 +945,7 @@ def scheduler_loop():
                         daemon=True
                     ).start()
 
+            # --- سیکل 1d ---
             if hour == 1 and minute == 5 and cfg.get("enable_1d", True):
                 ch = cfg.get("chat_id_1d") or cfg.get("chat_id_1h")
                 if ch:
@@ -1139,6 +963,7 @@ def scheduler_loop():
                         daemon=True
                     ).start()
 
+            # --- سیکل 15m ---
             if minute % 15 == 0 and cfg.get("enable_15m", True):
                 ch = cfg.get("chat_id_15m") or cfg.get("chat_id_1h")
                 if ch:
@@ -1166,8 +991,10 @@ def scheduler_loop():
 # =========================
 
 def main():
+    # شروع زمان‌بندی
     threading.Thread(target=scheduler_loop, daemon=True).start()
 
+    # شروع ربات اصلی
     if bot_1h:
         bot_1h.infinity_polling()
     else:
