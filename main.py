@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
-# Modu Bazler v6 — نسخه‌ی پایدار با:
+# Modu Bazler v6 — نسخه‌ی پایدار
+# - مدیریت نمادها مثل قبل (منوی 1h / 4h / 1d / 15m کاملاً فعال)
+# - تعداد نمادها شبیه نسخه‌های قبلی (لیست گسترده‌تر)
 # - لینک واقعی تلگرام به نمودار قبلی هر ارز
-# - عکس تجمیعی ۱۲تایی واقعی
-# - تنظیم تعداد کندل از منوی پیشرفته (مضرب ۳۰، پیش‌فرض ۹۰)
-# - چک یک نماد کاملاً سالم
-# - SmartLock + Watchdog + verbose + PDF
-# - فعال/غیرفعال کردن هر ربات
-# - بدون کرش و بدون fallback اضافی برای 15m
+# - عکس تجمیعی ۱۲تایی
+# - تنظیم تعداد کندل (مضرب ۳۰، پیش‌فرض ۹۰)
+# - چک یک نماد سالم
+# - SmartLock + Watchdog + PDF + زمان‌بندی
 
 import os, json, time, threading, datetime as dt
 import requests, numpy as np, pandas as pd
@@ -33,11 +33,18 @@ for d in [DATA_DIR, CHARTS_DIR, PDF_DIR]:
 
 CONFIG_PATH = os.path.join(DATA_DIR, "config_v6.json")
 
+DEFAULT_SYMBOLS = [
+    "BTCUSDT","ETHUSDT","BNBUSDT","XRPUSDT","ADAUSDT",
+    "SOLUSDT","DOGEUSDT","TRXUSDT","LINKUSDT","MATICUSDT",
+    "LTCUSDT","DOTUSDT","AVAXUSDT","UNIUSDT","ATOMUSDT",
+    "XLMUSDT","ETCUSDT","NEARUSDT","OPUSDT","ARBUSDT"
+]
+
 DEFAULT_CONFIG = {
-    "symbols_1h":   ["BTCUSDT","ETHUSDT","BNBUSDT","XRPUSDT","ADAUSDT"],
-    "symbols_4h":   ["BTCUSDT","ETHUSDT","BNBUSDT","XRPUSDT","ADAUSDT"],
-    "symbols_1d":   ["BTCUSDT","ETHUSDT","BNBUSDT","XRPUSDT","ADAUSDT"],
-    "symbols_15m":  ["BTCUSDT","ETHUSDT","BNBUSDT","XRPUSDT","ADAUSDT"],
+    "symbols_1h":   DEFAULT_SYMBOLS.copy(),
+    "symbols_4h":   DEFAULT_SYMBOLS.copy(),
+    "symbols_1d":   DEFAULT_SYMBOLS.copy(),
+    "symbols_15m":  DEFAULT_SYMBOLS.copy(),
 
     "lookback_1h":  5,
     "lookback_4h":  15,
@@ -45,7 +52,7 @@ DEFAULT_CONFIG = {
     "lookback_15m": 3,
 
     "max_bars":       300,
-    "bars_per_chart": 90,     # مضرب ۳۰ — قابل تنظیم از منوی پیشرفته
+    "bars_per_chart": 90,
 
     "alarm_wma_direction":   True,
     "alarm_cross_sma20":     False,
@@ -59,7 +66,7 @@ DEFAULT_CONFIG = {
     "make_pdf_1d": True,
 
     "make_combined_15m": True,
-    "make_combined_all": True,   # عکس تجمیعی ۱۲تایی در پایان سیکل
+    "make_combined_all": True,
 
     "chat_id_1h":   None,
     "chat_id_4h":   None,
@@ -188,7 +195,7 @@ CYCLE_LOCKS = {
 # =========================
 
 HELP_TEXT = """
-Modu Bazler v6 — لینک واقعی نمودار قبلی، عکس تجمیعی ۱۲تایی، تنظیم کندل، SmartLock، Watchdog
+Modu Bazler v6 — لینک نمودار قبلی، عکس تجمیعی ۱۲تایی، تنظیم کندل، SmartLock، Watchdog
 """
 
 def send_main_menu(chat_id):
@@ -216,8 +223,14 @@ def start_main(m):
 def refresh_main(m):
     send_main_menu(m.chat.id)
 
+@bot_1h.message_handler(func=lambda m: m.text == "ریست برنامه")
+def reset_app(m):
+    reset_config()
+    bot_1h.send_message(m.chat.id, "تنظیمات به حالت اولیه برگشت.")
+    send_main_menu(m.chat.id)
+
 # =========================
-# مدیریت نمادها
+# مدیریت نمادها (منوها مثل قبل)
 # =========================
 
 def get_symbols(cfg, group):
@@ -236,6 +249,22 @@ def show_symbol_menu(chat_id, group):
     kb.row(f"نمایش نمادهای {group}")
     kb.row("بازگشت به منوی اصلی")
     bot_1h.send_message(chat_id, txt, reply_markup=kb)
+
+@bot_1h.message_handler(func=lambda m: m.text == "مدیریت نمادهای 1h")
+def manage_1h(m):
+    show_symbol_menu(m.chat.id, "1h")
+
+@bot_1h.message_handler(func=lambda m: m.text == "مدیریت نمادهای 4h")
+def manage_4h(m):
+    show_symbol_menu(m.chat.id, "4h")
+
+@bot_1h.message_handler(func=lambda m: m.text == "مدیریت نمادهای 1d")
+def manage_1d(m):
+    show_symbol_menu(m.chat.id, "1d")
+
+@bot_1h.message_handler(func=lambda m: m.text == "مدیریت نمادهای 15m")
+def manage_15m(m):
+    show_symbol_menu(m.chat.id, "15m")
 
 @bot_1h.message_handler(func=lambda m: m.text.startswith("افزودن نماد به "))
 def add_symbol_any(m):
@@ -279,6 +308,44 @@ def show_symbols_any(m):
     cfg = load_config()
     symbols = get_symbols(cfg, group)
     bot_1h.send_message(m.chat.id, ", ".join(symbols))
+
+# =========================
+# تنظیم آلارم‌ها (ساده و مثل قبل)
+# =========================
+
+@bot_1h.message_handler(func=lambda m: m.text == "تنظیم آلارم‌ها")
+def alarm_settings(m):
+    cfg = load_config()
+    kb = types.InlineKeyboardMarkup()
+    kb.add(types.InlineKeyboardButton(f"WMA جهت ({'ON' if cfg['alarm_wma_direction'] else 'OFF'})", callback_data="al_wma_dir"))
+    kb.add(types.InlineKeyboardButton(f"Cross SMA20 ({'ON' if cfg['alarm_cross_sma20'] else 'OFF'})", callback_data="al_cross_20"))
+    kb.add(types.InlineKeyboardButton(f"Cross SMA100 ({'ON' if cfg['alarm_cross_sma100'] else 'OFF'})", callback_data="al_cross_100"))
+    kb.add(types.InlineKeyboardButton(f"Cross SMA200 ({'ON' if cfg['alarm_cross_sma200'] else 'OFF'})", callback_data="al_cross_200"))
+    kb.add(types.InlineKeyboardButton(f"جهت SMA20 ({'ON' if cfg['alarm_sma20_direction'] else 'OFF'})", callback_data="al_dir_20"))
+    kb.add(types.InlineKeyboardButton(f"جهت SMA100 ({'ON' if cfg['alarm_sma100_direction'] else 'OFF'})", callback_data="al_dir_100"))
+    kb.add(types.InlineKeyboardButton(f"جهت SMA200 ({'ON' if cfg['alarm_sma200_direction'] else 'OFF'})", callback_data="al_dir_200"))
+    bot_1h.send_message(m.chat.id, "تنظیم آلارم‌ها:", reply_markup=kb)
+
+@bot_1h.callback_query_handler(func=lambda c: c.data.startswith("al_"))
+def alarm_settings_handler(c):
+    cfg = load_config()
+    if c.data == "al_wma_dir":
+        cfg["alarm_wma_direction"] = not cfg["alarm_wma_direction"]
+    elif c.data == "al_cross_20":
+        cfg["alarm_cross_sma20"] = not cfg["alarm_cross_sma20"]
+    elif c.data == "al_cross_100":
+        cfg["alarm_cross_sma100"] = not cfg["alarm_cross_sma100"]
+    elif c.data == "al_cross_200":
+        cfg["alarm_cross_sma200"] = not cfg["alarm_cross_sma200"]
+    elif c.data == "al_dir_20":
+        cfg["alarm_sma20_direction"] = not cfg["alarm_sma20_direction"]
+    elif c.data == "al_dir_100":
+        cfg["alarm_sma100_direction"] = not cfg["alarm_sma100_direction"]
+    elif c.data == "al_dir_200":
+        cfg["alarm_sma200_direction"] = not cfg["alarm_sma200_direction"]
+    save_config(cfg)
+    bot_1h.answer_callback_query(c.id, "آلارم‌ها به‌روزرسانی شد.")
+    alarm_settings(c.message)
 
 # =========================
 # دیتا، اندیکاتورها، نمودار
@@ -849,7 +916,6 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str,
 
     elapsed = (end - start).total_seconds()
 
-    # fallback فقط برای 1h / 4h / 1d — نه برای 15m
     if elapsed < min_dur and group in ["1h","4h","1d"]:
         debug_mark(bot, chat_id, 2001, f"run_cycle_fallback_{group}")
         alarm_images = run_cycle_once(group, bot, chat_id, symbols, interval, lookback_days, max_bars, make_pdf)
