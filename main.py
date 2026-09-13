@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Modu Bazler v6 — نسخه پایدار کامل
+# Modu Bazler v6 — نسخه پایدار کامل با اصلاح آلارم‌ها و تعداد ارزها
 
 import os, json, time, threading, datetime as dt
 import requests, numpy as np, pandas as pd
@@ -26,18 +26,27 @@ for d in [DATA_DIR, CHARTS_DIR, PDF_DIR]:
 
 CONFIG_PATH = os.path.join(DATA_DIR, "config_v6.json")
 
-DEFAULT_SYMBOLS = [
-    "BTCUSDT","ETHUSDT","BNBUSDT","XRPUSDT","ADAUSDT",
-    "SOLUSDT","DOGEUSDT","TRXUSDT","LINKUSDT","MATICUSDT",
-    "LTCUSDT","DOTUSDT","AVAXUSDT","UNIUSDT","ATOMUSDT",
-    "XLMUSDT","ETCUSDT","NEARUSDT","OPUSDT","ARBUSDT"
+# ۱۰۰ ارز بزرگ (نمونه؛ می‌توانی به‌دلخواه اصلاح کنی)
+ALL_SYMBOLS_100 = [
+    "BTCUSDT","ETHUSDT","BNBUSDT","XRPUSDT","ADAUSDT","SOLUSDT","DOGEUSDT","TRXUSDT","LINKUSDT","MATICUSDT",
+    "LTCUSDT","DOTUSDT","AVAXUSDT","UNIUSDT","ATOMUSDT","XLMUSDT","ETCUSDT","NEARUSDT","OPUSDT","ARBUSDT",
+    "AAVEUSDT","ALGOUSDT","APTUSDT","AXSUSDT","BCHUSDT","CAKEUSDT","CHZUSDT","CRVUSDT","DYDXUSDT","EGLDUSDT",
+    "ENSUSDT","FTMUSDT","GALAUSDT","GMTUSDT","IMXUSDT","INJUSDT","KAVAUSDT","KLAYUSDT","LDOUSDT","MANAUSDT",
+    "MASKUSDT","MINAUSDT","PEPEUSDT","QNTUSDT","RNDRUSDT","ROSEUSDT","RUNEUSDT","SANDUSDT","SFPUSDT","SNXUSDT",
+    "STXUSDT","SUIUSDT","THETAUSDT","TWTUSDT","VETUSDT","WOOUSDT","XECUSDT","XMRUSDT","ZECUSDT","ZILUSDT",
+    "AGIXUSDT","BANDUSDT","COMPUSDT","CTSIUSDT","FLMUSDT","HFTUSDT","HOOKUSDT","ICPUSDT","LRCUSDT","MAGICUSDT",
+    "MKRUSDT","NKNUSDT","OCEANUSDT","ONEUSDT","PENDLEUSDT","PYRUSDT","RLCUSDT","RSRUSDT","SKLUSDT","STORJUSDT",
+    "SXPUSDT","TRBUSDT","UMAUSDT","WAVESUSDT","YFIUSDT","ZRXUSDT","BELUSDT","COTIUSDT","DODOUSDT","FETUSDT",
+    "GRTUSDT","HNTUSDT","HOTUSDT","IOSTUSDT","KSMUSDT","OGNUSDT","RENUSDT","RIFUSDT","SCRTUSDT","XVGUSDT"
 ]
 
 DEFAULT_CONFIG = {
-    "symbols_1h":   DEFAULT_SYMBOLS.copy(),
-    "symbols_4h":   DEFAULT_SYMBOLS.copy(),
-    "symbols_1d":   DEFAULT_SYMBOLS.copy(),
-    "symbols_15m":  DEFAULT_SYMBOLS.copy(),
+    # ۱۰۰ ارز برای 1h / 4h / 1d
+    "symbols_1h":   ALL_SYMBOLS_100.copy(),
+    "symbols_4h":   ALL_SYMBOLS_100.copy(),
+    "symbols_1d":   ALL_SYMBOLS_100.copy(),
+    # ۷۵ ارز اول برای 15m
+    "symbols_15m":  ALL_SYMBOLS_100[:75],
 
     "lookback_1h":  5,
     "lookback_4h":  15,
@@ -188,7 +197,7 @@ CYCLE_LOCKS = {
 # =========================
 
 HELP_TEXT = """
-Modu Bazler v6 — لینک نمودار قبلی، عکس تجمیعی ۱۲تایی، تنظیم کندل، SmartLock، Watchdog
+Modu Bazler v6 — لینک نمودار قبلی، عکس تجمیعی ۱۲تایی، تنظیم کندل، SmartLock، Watchdog، آلارم‌های اصلاح‌شده
 """
 
 def send_main_menu(chat_id):
@@ -584,14 +593,32 @@ def detect_alarms(cfg: dict, info: dict, group: str):
     # --- ذخیره‌سازی صحیح آلارم‌ها ---
     if alarms:
         LAST_ALARMS[group].append({
-            "symbol": info["symbol"],
-            "interval": info["interval"],
-            "time": info["created_at"],
-            "alarms": alarms
+            "symbol":  info["symbol"],
+            "interval":info["interval"],
+            "time":    info["created_at"],
+            "alarms":  alarms
         })
 
     return alarms
 
+# =========================
+# گزارش آلارم‌ها
+# =========================
+
+@bot_1h.message_handler(func=lambda m: m.text == "گزارش آلارم‌ها")
+def alarms_report(m):
+    txt = ""
+    for group in ["1h","4h","1d","15m"]:
+        if LAST_ALARMS[group]:
+            txt += f"آلارم‌های {group}:\n"
+            for item in LAST_ALARMS[group]:
+                txt += f"{item['symbol']} ({item['interval']}):\n"
+                for a in item["alarms"]:
+                    txt += f" - {a}\n"
+                txt += f"زمان: {item['time']}\n\n"
+    if not txt:
+        txt = "هیچ آلارمی ثبت نشده است."
+    bot_1h.send_message(m.chat.id, txt)
 
 # =========================
 # چک یک نماد — لینک واقعی
@@ -724,6 +751,10 @@ def advanced_settings_handler(c):
     bot_1h.answer_callback_query(c.id, "تنظیمات اعمال شد.")
     advanced_settings(c.message)
 
+@bot_1h.message_handler(func=lambda m: m.text == "راهنما")
+def help_menu(m):
+    bot_1h.send_message(m.chat.id, HELP_TEXT)
+
 # =========================
 # عکس تجمیعی ۱۲تایی
 # =========================
@@ -782,9 +813,12 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
     bars_per_chart = cfg.get("bars_per_chart", max_bars)
     bars_per_chart = max(30, min(bars_per_chart, max_bars))
 
+    # آلارم‌های این سیکل را پاک می‌کنیم تا فقط آلارم‌های جدید ثبت شوند
+    LAST_ALARMS[group] = []
+
     if not lock.acquire(blocking=False):
         debug_mark(bot, chat_id, 902, f"run_cycle_lock_busy_{group}")
-        return []
+        return [], 0
 
     pdf          = None
     pdf_filename = None
@@ -798,6 +832,7 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
             pdf = None
 
     alarm_images = []
+    alarms_count = 0  # تعداد آلارم‌های همین سیکل
 
     try:
         if verbose:
@@ -824,6 +859,9 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
 
             info   = create_plotly_chart(sym, interval, lookback_days, bars_per_chart, png)
             alarms = detect_alarms(cfg, info, group)
+
+            if alarms:
+                alarms_count += len(alarms)
 
             if not verbose and not alarms:
                 continue
@@ -868,7 +906,7 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
             except:
                 debug_mark(bot, chat_id, 910, f"run_cycle_pdf_send_{group}")
 
-        return alarm_images
+        return alarm_images, alarms_count
 
     finally:
         lock.release()
@@ -886,17 +924,178 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str,
     min_dur = cfg.get("cycle_min_duration_sec", 5)
 
     start        = now_utc()
-    alarm_images = run_cycle_once(group, bot, chat_id, symbols, interval, lookback_days, max_bars, make_pdf)
+    alarm_images, alarms_count = run_cycle_once(group, bot, chat_id, symbols, interval, lookback_days, max_bars, make_pdf)
     end          = now_utc()
 
     elapsed = (end - start).total_seconds()
 
     if elapsed < min_dur and group in ["1h","4h","1d"]:
         debug_mark(bot, chat_id, 2001, f"run_cycle_fallback_{group}")
-        alarm_images = run_cycle_once(group, bot, chat_id, symbols, interval, lookback_days, max_bars, make_pdf)
+        alarm_images, alarms_count = run_cycle_once(group, bot, chat_id, symbols, interval, lookback_days, max_bars, make_pdf)
 
     if cfg.get("make_combined_all", True):
         make_combined_pages(group, bot, chat_id, alarm_images)
+
+    # در پایان سیکل ۱۵ دقیقه، فقط تعداد آلارم‌های همان سیکل را پیام می‌دهیم
+    if group == "15m":
+        try:
+            bot.send_message(chat_id, f"تعداد آلارم‌های این سیکل 15m: {alarms_count}")
+        except:
+            debug_mark(bot, chat_id, 911, "send_15m_alarm_count")
+
+# =========================
+# اجرای دستی از منوی 1h
+# =========================
+
+@bot_1h.message_handler(func=lambda m: m.text == "اجرای دستی 1h")
+def manual_1h(m):
+    cfg = load_config()
+    if not cfg.get("enable_1h", True):
+        bot_1h.send_message(m.chat.id, "ربات 1h غیرفعال است.")
+        return
+
+    threading.Thread(
+        target=lambda: run_cycle(
+            "1h",
+            bot_1h,
+            m.chat.id,
+            cfg["symbols_1h"],
+            "1h",
+            cfg["lookback_1h"],
+            cfg["max_bars"],
+            cfg["make_pdf_1h"]
+        ),
+        daemon=True
+    ).start()
+
+@bot_1h.message_handler(func=lambda m: m.text == "اجرای فوری 4h")
+def manual_4h(m):
+    cfg = load_config()
+    if not cfg.get("enable_4h", True):
+        bot_1h.send_message(m.chat.id, "ربات 4h غیرفعال است.")
+        return
+
+    threading.Thread(
+        target=lambda: run_cycle(
+            "4h",
+            bot_4h or bot_1h,
+            m.chat.id,
+            cfg["symbols_4h"],
+            "4h",
+            cfg["lookback_4h"],
+            cfg["max_bars"],
+            False
+        ),
+        daemon=True
+    ).start()
+
+@bot_1h.message_handler(func=lambda m: m.text == "اجرای فوری 1d")
+def manual_1d(m):
+    cfg = load_config()
+    if not cfg.get("enable_1d", True):
+        bot_1h.send_message(m.chat.id, "ربات 1d غیرفعال است.")
+        return
+
+    threading.Thread(
+        target=lambda: run_cycle(
+            "1d",
+            bot_1d or bot_1h,
+            m.chat.id,
+            cfg["symbols_1d"],
+            "1d",
+            cfg["lookback_1d"],
+            cfg["max_bars"],
+            cfg["make_pdf_1d"]
+        ),
+        daemon=True
+    ).start()
+
+@bot_1h.message_handler(func=lambda m: m.text == "اجرای فوری 15m")
+def manual_15m(m):
+    cfg = load_config()
+    if not cfg.get("enable_15m", True):
+        bot_1h.send_message(m.chat.id, "ربات 15m غیرفعال است.")
+        return
+
+    threading.Thread(
+        target=lambda: run_cycle(
+            "15m",
+            bot_15m or bot_1h,
+            m.chat.id,
+            cfg["symbols_15m"],
+            "15m",
+            cfg["lookback_15m"],
+            cfg["max_bars"],
+            False
+        ),
+        daemon=True
+    ).start()
+
+@bot_1h.message_handler(func=lambda m: m.text == "اجرای چرخه‌ها")
+def run_all_cycles(m):
+    cfg = load_config()
+
+    bot_1h.send_message(m.chat.id, "اجرای همهٔ سیکل‌ها شروع شد.")
+
+    if cfg.get("enable_1h", True):
+        threading.Thread(
+            target=lambda: run_cycle(
+                "1h",
+                bot_1h,
+                m.chat.id,
+                cfg["symbols_1h"],
+                "1h",
+                cfg["lookback_1h"],
+                cfg["max_bars"],
+                cfg["make_pdf_1h"]
+            ),
+            daemon=True
+        ).start()
+
+    if cfg.get("enable_4h", True):
+        threading.Thread(
+            target=lambda: run_cycle(
+                "4h",
+                bot_4h or bot_1h,
+                m.chat.id,
+                cfg["symbols_4h"],
+                "4h",
+                cfg["lookback_4h"],
+                cfg["max_bars"],
+                False
+            ),
+            daemon=True
+        ).start()
+
+    if cfg.get("enable_1d", True):
+        threading.Thread(
+            target=lambda: run_cycle(
+                "1d",
+                bot_1d or bot_1h,
+                m.chat.id,
+                cfg["symbols_1d"],
+                "1d",
+                cfg["lookback_1d"],
+                cfg["max_bars"],
+                cfg["make_pdf_1d"]
+            ),
+            daemon=True
+        ).start()
+
+    if cfg.get("enable_15m", True):
+        threading.Thread(
+            target=lambda: run_cycle(
+                "15m",
+                bot_15m or bot_1h,
+                m.chat.id,
+                cfg["symbols_15m"],
+                "15m",
+                cfg["lookback_15m"],
+                cfg["max_bars"],
+                False
+            ),
+            daemon=True
+        ).start()
 
 # =========================
 # زمان‌بندی خودکار
@@ -991,10 +1190,8 @@ def scheduler_loop():
 # =========================
 
 def main():
-    # شروع زمان‌بندی
     threading.Thread(target=scheduler_loop, daemon=True).start()
 
-    # شروع ربات اصلی
     if bot_1h:
         bot_1h.infinity_polling()
     else:
