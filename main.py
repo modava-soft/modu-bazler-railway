@@ -6,7 +6,7 @@
 # - چک یک نماد کاملاً سالم
 # - SmartLock + Watchdog + verbose + PDF
 # - فعال/غیرفعال کردن هر ربات
-# - بدون کرش و حلقه‌های بی‌نهایت
+# - بدون کرش و بدون fallback اضافی برای 15m
 
 import os, json, time, threading, datetime as dt
 import requests, numpy as np, pandas as pd
@@ -34,26 +34,26 @@ for d in [DATA_DIR, CHARTS_DIR, PDF_DIR]:
 CONFIG_PATH = os.path.join(DATA_DIR, "config_v6.json")
 
 DEFAULT_CONFIG = {
-    "symbols_1h": ["BTCUSDT","ETHUSDT","BNBUSDT","XRPUSDT","ADAUSDT"],
-    "symbols_4h": ["BTCUSDT","ETHUSDT","BNBUSDT","XRPUSDT","ADAUSDT"],
-    "symbols_1d": ["BTCUSDT","ETHUSDT","BNBUSDT","XRPUSDT","ADAUSDT"],
-    "symbols_15m": ["BTCUSDT","ETHUSDT","BNBUSDT","XRPUSDT","ADAUSDT"],
+    "symbols_1h":   ["BTCUSDT","ETHUSDT","BNBUSDT","XRPUSDT","ADAUSDT"],
+    "symbols_4h":   ["BTCUSDT","ETHUSDT","BNBUSDT","XRPUSDT","ADAUSDT"],
+    "symbols_1d":   ["BTCUSDT","ETHUSDT","BNBUSDT","XRPUSDT","ADAUSDT"],
+    "symbols_15m":  ["BTCUSDT","ETHUSDT","BNBUSDT","XRPUSDT","ADAUSDT"],
 
-    "lookback_1h": 5,
-    "lookback_4h": 15,
-    "lookback_1d": 180,
+    "lookback_1h":  5,
+    "lookback_4h":  15,
+    "lookback_1d":  180,
     "lookback_15m": 3,
 
-    "max_bars": 300,
+    "max_bars":       300,
     "bars_per_chart": 90,     # مضرب ۳۰ — قابل تنظیم از منوی پیشرفته
 
-    "alarm_wma_direction": True,
-    "alarm_cross_sma20": False,
-    "alarm_cross_sma100": False,
-    "alarm_cross_sma200": False,
+    "alarm_wma_direction":   True,
+    "alarm_cross_sma20":     False,
+    "alarm_cross_sma100":    False,
+    "alarm_cross_sma200":    False,
     "alarm_sma20_direction": False,
-    "alarm_sma100_direction": False,
-    "alarm_sma200_direction": False,
+    "alarm_sma100_direction":False,
+    "alarm_sma200_direction":False,
 
     "make_pdf_1h": True,
     "make_pdf_1d": True,
@@ -61,29 +61,29 @@ DEFAULT_CONFIG = {
     "make_combined_15m": True,
     "make_combined_all": True,   # عکس تجمیعی ۱۲تایی در پایان سیکل
 
-    "chat_id_1h": None,
-    "chat_id_4h": None,
-    "chat_id_1d": None,
-    "chat_id_15m": None,
+    "chat_id_1h":   None,
+    "chat_id_4h":   None,
+    "chat_id_1d":   None,
+    "chat_id_15m":  None,
 
-    "verbose_1h": True,
-    "verbose_4h": True,
-    "verbose_1d": True,
-    "verbose_15m": True,
+    "verbose_1h":   True,
+    "verbose_4h":   True,
+    "verbose_1d":   True,
+    "verbose_15m":  True,
 
     "cycle_progress_batch": 5,
 
-    "lock_timeout_sec": 600,
-    "cycle_min_duration_sec": 5,
+    "lock_timeout_sec":      600,
+    "cycle_min_duration_sec":5,
 
-    "enable_1h": True,
-    "enable_4h": True,
-    "enable_1d": True,
-    "enable_15m": True,
+    "enable_1h":   True,
+    "enable_4h":   True,
+    "enable_1d":   True,
+    "enable_15m":  True,
 }
 
-LAST_MSG_ID = {}
-LAST_ALARMS = {"1h": [], "4h": [], "1d": [], "15m": []}
+LAST_MSG_ID  = {}
+LAST_ALARMS  = {"1h": [], "4h": [], "1d": [], "15m": []}
 
 # =========================
 # توکن‌ها و ربات‌ها
@@ -177,9 +177,9 @@ class SmartLock:
                 pass
 
 CYCLE_LOCKS = {
-    "1h": SmartLock(),
-    "4h": SmartLock(),
-    "1d": SmartLock(),
+    "1h":  SmartLock(),
+    "4h":  SmartLock(),
+    "1d":  SmartLock(),
     "15m": SmartLock()
 }
 
@@ -472,15 +472,15 @@ def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars
         debug_mark(bot_1h, ADMIN_CHAT, 805, "create_plotly_chart_write")
 
     return {
-        "symbol": symbol,
-        "interval": interval,
-        "png_path": png_path,
-        "created_at": now_utc_str(),
-        "wma": df["WMA20"].tolist() if "WMA20" in df.columns else [],
-        "wma_slope": df["WMA20_slope"].tolist() if "WMA20_slope" in df.columns else [],
-        "sma20": df["SMA20"].tolist() if "SMA20" in df.columns else [],
-        "sma100": df["SMA100"].tolist() if "SMA100" in df.columns else [],
-        "sma200": df["SMA200"].tolist() if "SMA200" in df.columns else []
+        "symbol":    symbol,
+        "interval":  interval,
+        "png_path":  png_path,
+        "created_at":now_utc_str(),
+        "wma":       df["WMA20"].tolist()      if "WMA20"      in df.columns else [],
+        "wma_slope": df["WMA20_slope"].tolist()if "WMA20_slope"in df.columns else [],
+        "sma20":     df["SMA20"].tolist()      if "SMA20"      in df.columns else [],
+        "sma100":    df["SMA100"].tolist()     if "SMA100"     in df.columns else [],
+        "sma200":    df["SMA200"].tolist()     if "SMA200"     in df.columns else []
     }
 
 # =========================
@@ -535,10 +535,10 @@ def detect_alarms(cfg: dict, info: dict, group: str):
 
     if alarms:
         LAST_ALARMS[group] = [{
-            "symbol": info["symbol"],
-            "interval": info["interval"],
-            "time": info["created_at"],
-            "alarms": alarms
+            "symbol":  info["symbol"],
+            "interval":info["interval"],
+            "time":    info["created_at"],
+            "alarms":  alarms
         }]
 
     return alarms
@@ -573,10 +573,10 @@ def do_check_one_symbol(m):
     bars = cfg.get("bars_per_chart", 90)
     bars = max(30, min(bars, cfg.get("max_bars", 300)))
 
-    ts = now_utc().strftime("%Y%m%d_%H%M%S")
+    ts  = now_utc().strftime("%Y%m%d_%H%M%S")
     png = f"check_{sym}_{ts}.png"
 
-    info = create_plotly_chart(sym, "1h", cfg["lookback_1h"], bars, png)
+    info   = create_plotly_chart(sym, "1h", cfg["lookback_1h"], bars, png)
     alarms = detect_alarms(cfg, info, "1h")
 
     caption = f"{sym} (چک 1h)"
@@ -695,7 +695,7 @@ def make_combined_pages(group: str, bot, chat_id: int, image_paths):
         return
 
     pages = []
-    page = []
+    page  = []
 
     for img in image_paths:
         page.append(img)
@@ -735,10 +735,10 @@ def make_combined_pages(group: str, bot, chat_id: int, image_paths):
 
 def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
                    lookback_days: int, max_bars: int, make_pdf: bool):
-    cfg = load_config()
-    verbose = cfg.get(f"verbose_{group}", True)
-    batch_size = cfg.get("cycle_progress_batch", 5)
-    lock = CYCLE_LOCKS[group]
+    cfg       = load_config()
+    verbose   = cfg.get(f"verbose_{group}", True)
+    batch_size= cfg.get("cycle_progress_batch", 5)
+    lock      = CYCLE_LOCKS[group]
 
     bars_per_chart = cfg.get("bars_per_chart", max_bars)
     bars_per_chart = max(30, min(bars_per_chart, max_bars))
@@ -747,7 +747,7 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
         debug_mark(bot, chat_id, 902, f"run_cycle_lock_busy_{group}")
         return []
 
-    pdf = None
+    pdf          = None
     pdf_filename = None
 
     if verbose and make_pdf and group in ["1h", "1d"]:
@@ -768,7 +768,7 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
                 debug_mark(bot, chat_id, 904, f"run_cycle_start_msg_{group}")
 
         unique_symbols = list(dict.fromkeys(symbols))
-        total = len(unique_symbols)
+        total     = len(unique_symbols)
         processed = 0
 
         for sym in unique_symbols:
@@ -780,10 +780,10 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
                 except:
                     debug_mark(bot, chat_id, 906, f"run_cycle_progress_{group}")
 
-            ts = now_utc().strftime("%Y%m%d_%H%M%S")
+            ts  = now_utc().strftime("%Y%m%d_%H%M%S")
             png = f"{group}_{sym}_{ts}.png"
 
-            info = create_plotly_chart(sym, interval, lookback_days, bars_per_chart, png)
+            info   = create_plotly_chart(sym, interval, lookback_days, bars_per_chart, png)
             alarms = detect_alarms(cfg, info, group)
 
             if not verbose and not alarms:
@@ -836,25 +836,22 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str,
               lookback_days: int, max_bars: int, make_pdf: bool):
     cfg = load_config()
 
-    if group == "1h" and not cfg.get("enable_1h", True):
-        return
-    if group == "4h" and not cfg.get("enable_4h", True):
-        return
-    if group == "1d" and not cfg.get("enable_1d", True):
-        return
-    if group == "15m" and not cfg.get("enable_15m", True):
-        return
+    if group == "1h"  and not cfg.get("enable_1h",  True): return
+    if group == "4h"  and not cfg.get("enable_4h",  True): return
+    if group == "1d"  and not cfg.get("enable_1d",  True): return
+    if group == "15m" and not cfg.get("enable_15m", True): return
 
     min_dur = cfg.get("cycle_min_duration_sec", 5)
 
-    start = now_utc()
+    start        = now_utc()
     alarm_images = run_cycle_once(group, bot, chat_id, symbols, interval, lookback_days, max_bars, make_pdf)
-    end = now_utc()
+    end          = now_utc()
 
     elapsed = (end - start).total_seconds()
-    if elapsed < min_dur:
+
+    # fallback فقط برای 1h / 4h / 1d — نه برای 15m
+    if elapsed < min_dur and group in ["1h","4h","1d"]:
         debug_mark(bot, chat_id, 2001, f"run_cycle_fallback_{group}")
-        # فقط یک بار fallback، بدون حلقه بی‌نهایت
         alarm_images = run_cycle_once(group, bot, chat_id, symbols, interval, lookback_days, max_bars, make_pdf)
 
     if cfg.get("make_combined_all", True):
@@ -871,14 +868,12 @@ def manual_1h(m):
         bot_1h.send_message(m.chat.id, "ربات 1h غیرفعال است.")
         return
 
-    symbols = cfg["symbols_1h"]
-
     threading.Thread(
         target=lambda: run_cycle(
             "1h",
             bot_1h,
             m.chat.id,
-            symbols,
+            cfg["symbols_1h"],
             "1h",
             cfg["lookback_1h"],
             cfg["max_bars"],
@@ -894,14 +889,12 @@ def manual_4h(m):
         bot_1h.send_message(m.chat.id, "ربات 4h غیرفعال است.")
         return
 
-    symbols = cfg["symbols_4h"]
-
     threading.Thread(
         target=lambda: run_cycle(
             "4h",
             bot_4h or bot_1h,
             m.chat.id,
-            symbols,
+            cfg["symbols_4h"],
             "4h",
             cfg["lookback_4h"],
             cfg["max_bars"],
@@ -917,14 +910,12 @@ def manual_1d(m):
         bot_1h.send_message(m.chat.id, "ربات 1d غیرفعال است.")
         return
 
-    symbols = cfg["symbols_1d"]
-
     threading.Thread(
         target=lambda: run_cycle(
             "1d",
             bot_1d or bot_1h,
             m.chat.id,
-            symbols,
+            cfg["symbols_1d"],
             "1d",
             cfg["lookback_1d"],
             cfg["max_bars"],
@@ -940,14 +931,12 @@ def manual_15m(m):
         bot_1h.send_message(m.chat.id, "ربات 15m غیرفعال است.")
         return
 
-    symbols = cfg["symbols_15m"]
-
     threading.Thread(
         target=lambda: run_cycle(
             "15m",
             bot_15m or bot_1h,
             m.chat.id,
-            symbols,
+            cfg["symbols_15m"],
             "15m",
             cfg["lookback_15m"],
             cfg["max_bars"],
@@ -1029,9 +1018,9 @@ def run_all_cycles(m):
 def scheduler_loop():
     while True:
         try:
-            now = now_utc()
+            now    = now_utc()
             minute = now.minute
-            hour = now.hour
+            hour   = now.hour
 
             cfg = load_config()
 
