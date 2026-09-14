@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Modu Bazler v6 — نسخه پایدار کامل با اصلاح آلارم‌ها و تعداد ارزها
+# Modu Bazler v7 — نسخه پایدار با رفع قفل‌ها، آلارم‌های درست، گزارش کامل
 
 import os, json, time, threading, datetime as dt
 import requests, numpy as np, pandas as pd
@@ -24,9 +24,8 @@ PDF_DIR    = os.path.join(DATA_DIR, "pdf")
 for d in [DATA_DIR, CHARTS_DIR, PDF_DIR]:
     os.makedirs(d, exist_ok=True)
 
-CONFIG_PATH = os.path.join(DATA_DIR, "config_v6.json")
+CONFIG_PATH = os.path.join(DATA_DIR, "config_v7.json")
 
-# ۱۰۰ ارز بزرگ (نمونه؛ می‌توانی به‌دلخواه اصلاح کنی)
 ALL_SYMBOLS_100 = [
     "BTCUSDT","ETHUSDT","BNBUSDT","XRPUSDT","ADAUSDT","SOLUSDT","DOGEUSDT","TRXUSDT","LINKUSDT","MATICUSDT",
     "LTCUSDT","DOTUSDT","AVAXUSDT","UNIUSDT","ATOMUSDT","XLMUSDT","ETCUSDT","NEARUSDT","OPUSDT","ARBUSDT",
@@ -41,11 +40,9 @@ ALL_SYMBOLS_100 = [
 ]
 
 DEFAULT_CONFIG = {
-    # ۱۰۰ ارز برای 1h / 4h / 1d
     "symbols_1h":   ALL_SYMBOLS_100.copy(),
     "symbols_4h":   ALL_SYMBOLS_100.copy(),
     "symbols_1d":   ALL_SYMBOLS_100.copy(),
-    # ۷۵ ارز اول برای 15m
     "symbols_15m":  ALL_SYMBOLS_100[:75],
 
     "lookback_1h":  5,
@@ -54,7 +51,7 @@ DEFAULT_CONFIG = {
     "lookback_15m": 3,
 
     "max_bars":       300,
-    "bars_per_chart": 90,   # مضرب ۳۰
+    "bars_per_chart": 90,
 
     "alarm_wma_direction":   True,
     "alarm_cross_sma20":     False,
@@ -93,10 +90,6 @@ DEFAULT_CONFIG = {
 
 LAST_MSG_ID  = {}
 LAST_ALARMS  = {"1h": [], "4h": [], "1d": [], "15m": []}
-
-# =========================
-# توکن‌ها و ربات‌ها
-# =========================
 
 TOKEN_1H   = (os.getenv("TOKEN_1H") or "").strip()
 TOKEN_4H   = (os.getenv("TOKEN_4H") or "").strip()
@@ -178,6 +171,14 @@ class SmartLock:
             self.last_acquire = now_utc()
         return ok
 
+    def force_release(self):
+        try:
+            if self.lock.locked():
+                self.lock.release()
+        except:
+            pass
+        self.last_acquire = None
+
     def release(self):
         if self.lock.locked():
             try:
@@ -192,13 +193,55 @@ CYCLE_LOCKS = {
     "15m": SmartLock()
 }
 
+def force_clear_all_locks():
+    for g, lk in CYCLE_LOCKS.items():
+        lk.force_release()
+    for g in LAST_ALARMS:
+        LAST_ALARMS[g] = []
+
 # =========================
-# منوی اصلی
+# راهنما
 # =========================
 
 HELP_TEXT = """
-Modu Bazler v6 — لینک نمودار قبلی، عکس تجمیعی ۱۲تایی، تنظیم کندل، SmartLock، Watchdog، آلارم‌های اصلاح‌شده
+راهنمای کامل Modu Bazler v7:
+
+1️⃣ منوی اصلی:
+- چک یک نماد: ساخت نمودار 1h برای یک نماد و نمایش آلارم‌های آن.
+- اجرای دستی 1h / فوری 4h / فوری 1d / فوری 15m: اجرای فوری سیکل همان تایم‌فریم.
+- مدیریت نمادها: افزودن/حذف/نمایش نمادهای هر تایم‌فریم (1h, 4h, 1d, 15m).
+- تنظیم آلارم‌ها: فعال/غیرفعال کردن انواع آلارم WMA و SMA.
+- گزارش آلارم‌ها: نمایش آخرین آلارم‌های ثبت‌شده در هر تایم‌فریم.
+- وضعیت سیستم: نمایش تعداد نمادها، تنظیمات کندل، PDF، Combined، verbose، enable و قفل‌ها.
+- تنظیمات پیشرفته: تنظیم PDF، Combined، تعداد کندل‌ها، verbose و فعال/غیرفعال کردن هر سیکل.
+- اجرای چرخه‌ها: اجرای همهٔ سیکل‌ها (1h, 4h, 4h, 1d, 15m) به‌صورت هم‌زمان.
+- ریست برنامه: بازگشت تنظیمات به حالت اولیه.
+- رفع خطای قفل‌ها: آزاد کردن همهٔ قفل‌ها و پاک کردن آلارم‌های قدیمی برای جلوگیری از گیرکردن سیکل‌ها.
+- راهنما: همین متن راهنما.
+- رفرش منو: بازسازی منوی اصلی.
+
+2️⃣ آلارم‌ها:
+- WMA20 جهت: وقتی شیب WMA20 از منفی به مثبت یا برعکس تغییر کند، آلارم جهت ثبت می‌شود.
+- Cross SMA20/100/200: برخورد WMA20 با SMA20/100/200 آلارم برخورد ثبت می‌کند.
+- جهت SMA20/100/200: تغییر جهت SMAها (از بالا به پایین یا برعکس) آلارم جهت ثبت می‌کند.
+
+3️⃣ گزارش آلارم‌ها:
+- در هر اجرای سیکل، آلارم‌های همان سیکل در LAST_ALARMS[group] ذخیره می‌شوند.
+- دستور «گزارش آلارم‌ها» آخرین آلارم‌های هر گروه را با نماد، تایم‌فریم، زمان و متن آلارم‌ها نشان می‌دهد.
+
+4️⃣ پایان هر سیکل:
+- در پایان هر سیکل (1h, 4h, 1d, 15m)، یک پیام به‌صورت:
+  «تعداد آلارم‌های این سیکل group: N»
+  ارسال می‌شود—even اگر N = 0 باشد.
+
+5️⃣ قفل‌ها و خطاها:
+- اگر خطایی مثل TEST#902 @ run_cycle_lock_busy_15m دیده شد، یعنی قفل آن گروه درگیر است.
+- با دکمه «رفع خطای قفل‌ها» همهٔ قفل‌ها آزاد می‌شوند و سیکل‌ها دوباره قابل اجرا می‌شوند.
 """
+
+# =========================
+# منوی اصلی
+# =========================
 
 def send_main_menu(chat_id):
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -210,6 +253,7 @@ def send_main_menu(chat_id):
     kb.row("تنظیم آلارم‌ها", "گزارش آلارم‌ها")
     kb.row("وضعیت سیستم", "تنظیمات پیشرفته")
     kb.row("اجرای چرخه‌ها", "ریست برنامه")
+    kb.row("رفع خطای قفل‌ها")
     kb.row("راهنما", "رفرش منو")
     bot_1h.send_message(chat_id, "منوی اصلی:", reply_markup=kb)
 
@@ -230,6 +274,15 @@ def reset_app(m):
     reset_config()
     bot_1h.send_message(m.chat.id, "تنظیمات به حالت اولیه برگشت.")
     send_main_menu(m.chat.id)
+
+@bot_1h.message_handler(func=lambda m: m.text == "رفع خطای قفل‌ها")
+def clear_locks_cmd(m):
+    force_clear_all_locks()
+    bot_1h.send_message(m.chat.id, "همهٔ قفل‌ها آزاد شدند و آلارم‌های قدیمی پاک شدند.\nاگر سیکل‌ها گیر کرده بودند، دوباره اجرا می‌شوند.")
+
+@bot_1h.message_handler(func=lambda m: m.text == "راهنما")
+def help_menu(m):
+    bot_1h.send_message(m.chat.id, HELP_TEXT)
 
 # =========================
 # مدیریت نمادها
@@ -350,7 +403,7 @@ def alarm_settings_handler(c):
     alarm_settings(c.message)
 
 # =========================
-# دریافت دیتا از صرافی‌ها
+# دریافت دیتا
 # =========================
 
 def _binance_interval(i: str) -> str:
@@ -362,7 +415,6 @@ def _kucoin_interval(i: str) -> str:
 def fetch_ohlc(symbol: str, interval: str, lookback_days: int, max_bars: int) -> pd.DataFrame:
     limit = max(500, max_bars)
 
-    # --- Binance ---
     try:
         url = "https://api.binance.com/api/v3/klines"
         r = requests.get(url, params={
@@ -380,7 +432,6 @@ def fetch_ohlc(symbol: str, interval: str, lookback_days: int, max_bars: int) ->
     except Exception:
         debug_mark(bot_1h, ADMIN_CHAT, 801, "fetch_ohlc_binance")
 
-    # --- KuCoin ---
     try:
         sym = symbol.replace("USDT", "-USDT")
         end = int(now_utc().timestamp())
@@ -405,7 +456,7 @@ def fetch_ohlc(symbol: str, interval: str, lookback_days: int, max_bars: int) ->
         return pd.DataFrame()
 
 # =========================
-# محاسبه اندیکاتورها
+# اندیکاتورها
 # =========================
 
 def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
@@ -444,7 +495,7 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 # =========================
-# ساخت نمودار Plotly
+# نمودار Plotly
 # =========================
 
 def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars: int, png_name: str):
@@ -538,7 +589,7 @@ def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars
     }
 
 # =========================
-# آلارم‌ها — نسخه اصلاح‌شده کامل
+# آلارم‌ها
 # =========================
 
 def detect_alarms(cfg: dict, info: dict, group: str):
@@ -552,14 +603,12 @@ def detect_alarms(cfg: dict, info: dict, group: str):
     if len(wma) < 3:
         return alarms
 
-    # --- WMA20 جهت ---
     if cfg.get("alarm_wma_direction", True):
         if slope[-2] < 0 and slope[-1] > 0:
             alarms.append("WMA20 جهت رو به بالا گرفت")
         if slope[-2] > 0 and slope[-1] < 0:
             alarms.append("WMA20 جهت رو به پایین گرفت")
 
-    # --- برخوردها ---
     def cross(a, b):
         if len(a) < 2 or len(b) < 2:
             return False
@@ -572,7 +621,6 @@ def detect_alarms(cfg: dict, info: dict, group: str):
     if cfg.get("alarm_cross_sma200", False) and cross(wma, sma200):
         alarms.append("برخورد WMA20 با SMA200")
 
-    # --- جهت SMA ---
     def dir_change(arr, name):
         if len(arr) < 3:
             return
@@ -590,7 +638,6 @@ def detect_alarms(cfg: dict, info: dict, group: str):
     if cfg.get("alarm_sma200_direction", False):
         dir_change(sma200, "SMA200")
 
-    # --- ذخیره‌سازی صحیح آلارم‌ها ---
     if alarms:
         LAST_ALARMS[group].append({
             "symbol":  info["symbol"],
@@ -621,7 +668,7 @@ def alarms_report(m):
     bot_1h.send_message(m.chat.id, txt)
 
 # =========================
-# چک یک نماد — لینک واقعی
+# چک یک نماد
 # =========================
 
 @bot_1h.message_handler(func=lambda m: m.text == "چک یک نماد")
@@ -751,10 +798,6 @@ def advanced_settings_handler(c):
     bot_1h.answer_callback_query(c.id, "تنظیمات اعمال شد.")
     advanced_settings(c.message)
 
-@bot_1h.message_handler(func=lambda m: m.text == "راهنما")
-def help_menu(m):
-    bot_1h.send_message(m.chat.id, HELP_TEXT)
-
 # =========================
 # عکس تجمیعی ۱۲تایی
 # =========================
@@ -813,7 +856,6 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
     bars_per_chart = cfg.get("bars_per_chart", max_bars)
     bars_per_chart = max(30, min(bars_per_chart, max_bars))
 
-    # آلارم‌های این سیکل را پاک می‌کنیم تا فقط آلارم‌های جدید ثبت شوند
     LAST_ALARMS[group] = []
 
     if not lock.acquire(blocking=False):
@@ -832,7 +874,7 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
             pdf = None
 
     alarm_images = []
-    alarms_count = 0  # تعداد آلارم‌های همین سیکل
+    alarms_count = 0
 
     try:
         if verbose:
@@ -936,15 +978,13 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str,
     if cfg.get("make_combined_all", True):
         make_combined_pages(group, bot, chat_id, alarm_images)
 
-    # در پایان سیکل ۱۵ دقیقه، فقط تعداد آلارم‌های همان سیکل را پیام می‌دهیم
-    if group == "15m":
-        try:
-            bot.send_message(chat_id, f"تعداد آلارم‌های این سیکل 15m: {alarms_count}")
-        except:
-            debug_mark(bot, chat_id, 911, "send_15m_alarm_count")
+    try:
+        bot.send_message(chat_id, f"تعداد آلارم‌های این سیکل {group}: {alarms_count}")
+    except:
+        debug_mark(bot, chat_id, 911, f"send_alarm_count_{group}")
 
 # =========================
-# اجرای دستی از منوی 1h
+# اجرای دستی
 # =========================
 
 @bot_1h.message_handler(func=lambda m: m.text == "اجرای دستی 1h")
@@ -1110,7 +1150,6 @@ def scheduler_loop():
 
             cfg = load_config()
 
-            # --- سیکل 1h ---
             if minute == 22 and cfg.get("enable_1h", True) and cfg.get("chat_id_1h"):
                 threading.Thread(
                     target=lambda: run_cycle(
@@ -1126,7 +1165,6 @@ def scheduler_loop():
                     daemon=True
                 ).start()
 
-            # --- سیکل 4h ---
             if minute == 7 and hour in [2,6,10,14,18,22] and cfg.get("enable_4h", True):
                 ch = cfg.get("chat_id_4h") or cfg.get("chat_id_1h")
                 if ch:
@@ -1144,7 +1182,6 @@ def scheduler_loop():
                         daemon=True
                     ).start()
 
-            # --- سیکل 1d ---
             if hour == 1 and minute == 5 and cfg.get("enable_1d", True):
                 ch = cfg.get("chat_id_1d") or cfg.get("chat_id_1h")
                 if ch:
@@ -1162,7 +1199,6 @@ def scheduler_loop():
                         daemon=True
                     ).start()
 
-            # --- سیکل 15m ---
             if minute % 15 == 0 and cfg.get("enable_15m", True):
                 ch = cfg.get("chat_id_15m") or cfg.get("chat_id_1h")
                 if ch:
