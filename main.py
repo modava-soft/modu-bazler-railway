@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 # Modu Bazler v7.1 — نسخه پایدار با:
-# - رفع کامل قفل‌ها (به‌خصوص 15m)
+# - رفع قفل‌ها (به‌خصوص 15m)
 # - تاریخچه آلارم‌ها برای 10 سیکل آخر هر گروه
-# - منوی دسته‌بندی‌شده با ایموجی (شبه‌رنگ)
+# - منوی دسته‌بندی‌شده با ایموجی
 # - ساخت و ارسال عکس‌ها با کنترل خطا
 
 import os, json, time, threading, datetime as dt
@@ -92,8 +92,6 @@ DEFAULT_CONFIG = {
     "enable_15m":  True,
 }
 
-# تاریخچه آلارم‌ها: برای هر گروه، لیست سیکل‌ها (حداکثر 10 سیکل)
-# هر سیکل: {"cycle_time": "...", "items": [ {symbol, interval, time, alarms[]} ]}
 ALARM_HISTORY = {
     "1h":  [],
     "4h":  [],
@@ -173,7 +171,6 @@ class SmartLock:
         if self.lock.locked() and self.last_acquire:
             elapsed = (now_utc() - self.last_acquire).total_seconds()
             if elapsed > timeout:
-                # قفل قدیمی را آزاد کن
                 try:
                     self.lock.release()
                 except:
@@ -209,14 +206,13 @@ CYCLE_LOCKS = {
 def force_clear_all_locks():
     for g, lk in CYCLE_LOCKS.items():
         lk.force_release()
-    # قفل‌ها آزاد، تاریخچه دست‌نخورده می‌ماند
 
 # =========================
 # راهنما
 # =========================
 
 HELP_TEXT = """
-راهنمای کامل Modu Bazler v7.1:
+راهنمای Modu Bazler v7.1:
 
 🔵 منوی اصلی:
 - چک یک نماد
@@ -232,27 +228,16 @@ HELP_TEXT = """
 - گزارش آلارم‌ها (تاریخچه 10 سیکل آخر هر گروه)
 
 🔴 تنظیمات و وضعیت:
-- وضعیت سیستم (نمادها، PDF، Combined، verbose، enable، قفل‌ها)
-- تنظیمات پیشرفته (PDF، Combined، کندل‌ها، verbose، enable)
+- وضعیت سیستم
+- تنظیمات پیشرفته
 - ریست برنامه
-- رفع خطای قفل‌ها (آزاد کردن همهٔ قفل‌ها)
+- رفع خطای قفل‌ها
 
 🟣 سایر:
 - راهنما
 - رفرش منو
 
-📌 آلارم‌ها:
-- در هر سیکل، آلارم‌های آن سیکل با زمان ثبت می‌شوند.
-- تاریخچه 10 سیکل آخر برای هر گروه نگه‌داری می‌شود.
-- پایان هر سیکل، فقط عدد تعداد آلارم همان سیکل به ربات ارسال می‌شود—even اگر صفر باشد.
-
-📌 قفل‌ها:
-- اگر TEST#902 @ run_cycle_lock_busy_15m دیده شد، یعنی قفل 15m درگیر است.
-- با دکمه «رفع خطای قفل‌ها» همهٔ قفل‌ها آزاد می‌شوند و سیکل‌ها دوباره اجرا می‌شوند.
-
-📌 عکس‌ها:
-- برای هر نماد، نمودار Plotly ساخته و به‌صورت PNG ذخیره و ارسال می‌شود.
-- اگر ساخت عکس خطا بدهد، سیکل ادامه می‌دهد ولی قفل حتماً آزاد می‌شود.
+پایان هر سیکل، فقط عدد تعداد آلارم همان سیکل به ربات ارسال می‌شود—even اگر صفر باشد.
 """
 
 # =========================
@@ -294,7 +279,7 @@ def reset_app(m):
 @bot_1h.message_handler(func=lambda m: m.text == "🔴 رفع خطای قفل‌ها")
 def clear_locks_cmd(m):
     force_clear_all_locks()
-    bot_1h.send_message(m.chat.id, "همهٔ قفل‌ها آزاد شدند.\nاگر سیکل‌ها گیر کرده بودند، دوباره قابل اجرا هستند.")
+    bot_1h.send_message(m.chat.id, "همهٔ قفل‌ها آزاد شدند.")
 
 @bot_1h.message_handler(func=lambda m: m.text == "🟣 راهنما")
 def help_menu(m):
@@ -549,13 +534,7 @@ def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars
         fig.add_trace(go.Scatter(x=df.index, y=df["SMA100"], mode="lines", name="SMA100", line=dict(color="orange")), row=1, col=1)
         fig.add_trace(go.Scatter(x=df.index, y=df["SMA200"], mode="lines", name="SMA200", line=dict(color="purple")), row=1, col=1)
 
-        wma   = df["WMA20"]
-        slope = df["WMA20_slope"]
-        wma_up   = wma.where(slope >= 0)
-        wma_down = wma.where(slope < 0)
-
-        fig.add_trace(go.Scatter(x=df.index, y=wma_up,   mode="lines", name="WMA20 Up",   line=dict(color="green", width=2, dash="dot")), row=1, col=1)
-        fig.add_trace(go.Scatter(x=df.index, y=wma_down, mode="lines", name="WMA20 Down", line=dict(color="red",   width=2, dash="dot")), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df["WMA20"], mode="lines", name="WMA20", line=dict(color="green", width=2, dash="dot")), row=1, col=1)
 
         fig.add_trace(go.Scatter(x=df.index, y=df["RSI14"], mode="lines", name="RSI14", line=dict(color="brown")), row=2, col=1)
         fig.add_hline(y=70, line=dict(color="red", dash="dash"), row=2, col=1)
@@ -591,7 +570,7 @@ def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars
         fig.write_image(png_path, width=1800, height=1100, scale=3)
     except Exception:
         debug_mark(bot_1h, ADMIN_CHAT, 805, "create_plotly_chart_write")
-        png_path = None  # عکس ساخته نشد
+        png_path = None
 
     return {
         "symbol":    symbol,
@@ -730,7 +709,7 @@ def do_check_one_symbol(m):
             msg = bot_1h.send_photo(m.chat.id, f, caption=caption)
         LAST_MSG_ID[sym] = msg.message_id
     else:
-        bot_1h.send_message(m.chat.id, caption + "\n⚠️ عکس ساخته نشد (مشکل write_image).")
+        bot_1h.send_message(m.chat.id, caption + "\n⚠️ عکس ساخته نشد.")
 
 # =========================
 # وضعیت سیستم
@@ -963,7 +942,6 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
                 except:
                     debug_mark(bot, chat_id, 908, f"run_cycle_send_photo_{group}")
             else:
-                # عکس ساخته نشده، فقط متن آلارم‌ها را بفرست
                 if alarms:
                     caption = f"{sym} ({group})\n🔔 آلارم‌ها:"
                     for a in alarms:
@@ -1023,7 +1001,6 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str,
             group, bot, chat_id, symbols, interval, lookback_days, max_bars, make_pdf
         )
 
-    # ثبت تاریخچه آلارم‌ها برای این سیکل
     if cycle_items:
         ALARM_HISTORY[group].append({"cycle_time": cycle_time, "items": cycle_items})
         if len(ALARM_HISTORY[group]) > 10:
