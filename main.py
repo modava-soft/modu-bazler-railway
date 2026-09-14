@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
-# Modu Bazler v7 — نسخه پایدار با رفع قفل‌ها، آلارم‌های درست، گزارش کامل
+# Modu Bazler v7.1 — نسخه پایدار با:
+# - رفع کامل قفل‌ها (به‌خصوص 15m)
+# - تاریخچه آلارم‌ها برای 10 سیکل آخر هر گروه
+# - منوی دسته‌بندی‌شده با ایموجی (شبه‌رنگ)
+# - ساخت و ارسال عکس‌ها با کنترل خطا
 
 import os, json, time, threading, datetime as dt
 import requests, numpy as np, pandas as pd
@@ -24,7 +28,7 @@ PDF_DIR    = os.path.join(DATA_DIR, "pdf")
 for d in [DATA_DIR, CHARTS_DIR, PDF_DIR]:
     os.makedirs(d, exist_ok=True)
 
-CONFIG_PATH = os.path.join(DATA_DIR, "config_v7.json")
+CONFIG_PATH = os.path.join(DATA_DIR, "config_v7_1.json")
 
 ALL_SYMBOLS_100 = [
     "BTCUSDT","ETHUSDT","BNBUSDT","XRPUSDT","ADAUSDT","SOLUSDT","DOGEUSDT","TRXUSDT","LINKUSDT","MATICUSDT",
@@ -43,7 +47,7 @@ DEFAULT_CONFIG = {
     "symbols_1h":   ALL_SYMBOLS_100.copy(),
     "symbols_4h":   ALL_SYMBOLS_100.copy(),
     "symbols_1d":   ALL_SYMBOLS_100.copy(),
-    "symbols_15m":  ALL_SYMBOLS_100[:75],
+    "symbols_15m":  ALL_SYMBOLS_100[:75],  # 75 ارز اول برای 15m
 
     "lookback_1h":  5,
     "lookback_4h":  15,
@@ -88,8 +92,16 @@ DEFAULT_CONFIG = {
     "enable_15m":  True,
 }
 
+# تاریخچه آلارم‌ها: برای هر گروه، لیست سیکل‌ها (حداکثر 10 سیکل)
+# هر سیکل: {"cycle_time": "...", "items": [ {symbol, interval, time, alarms[]} ]}
+ALARM_HISTORY = {
+    "1h":  [],
+    "4h":  [],
+    "1d":  [],
+    "15m": []
+}
+
 LAST_MSG_ID  = {}
-LAST_ALARMS  = {"1h": [], "4h": [], "1d": [], "15m": []}
 
 TOKEN_1H   = (os.getenv("TOKEN_1H") or "").strip()
 TOKEN_4H   = (os.getenv("TOKEN_4H") or "").strip()
@@ -161,6 +173,7 @@ class SmartLock:
         if self.lock.locked() and self.last_acquire:
             elapsed = (now_utc() - self.last_acquire).total_seconds()
             if elapsed > timeout:
+                # قفل قدیمی را آزاد کن
                 try:
                     self.lock.release()
                 except:
@@ -196,47 +209,50 @@ CYCLE_LOCKS = {
 def force_clear_all_locks():
     for g, lk in CYCLE_LOCKS.items():
         lk.force_release()
-    for g in LAST_ALARMS:
-        LAST_ALARMS[g] = []
+    # قفل‌ها آزاد، تاریخچه دست‌نخورده می‌ماند
 
 # =========================
 # راهنما
 # =========================
 
 HELP_TEXT = """
-راهنمای کامل Modu Bazler v7:
+راهنمای کامل Modu Bazler v7.1:
 
-1️⃣ منوی اصلی:
-- چک یک نماد: ساخت نمودار 1h برای یک نماد و نمایش آلارم‌های آن.
-- اجرای دستی 1h / فوری 4h / فوری 1d / فوری 15m: اجرای فوری سیکل همان تایم‌فریم.
-- مدیریت نمادها: افزودن/حذف/نمایش نمادهای هر تایم‌فریم (1h, 4h, 1d, 15m).
-- تنظیم آلارم‌ها: فعال/غیرفعال کردن انواع آلارم WMA و SMA.
-- گزارش آلارم‌ها: نمایش آخرین آلارم‌های ثبت‌شده در هر تایم‌فریم.
-- وضعیت سیستم: نمایش تعداد نمادها، تنظیمات کندل، PDF، Combined، verbose، enable و قفل‌ها.
-- تنظیمات پیشرفته: تنظیم PDF، Combined، تعداد کندل‌ها، verbose و فعال/غیرفعال کردن هر سیکل.
-- اجرای چرخه‌ها: اجرای همهٔ سیکل‌ها (1h, 4h, 4h, 1d, 15m) به‌صورت هم‌زمان.
-- ریست برنامه: بازگشت تنظیمات به حالت اولیه.
-- رفع خطای قفل‌ها: آزاد کردن همهٔ قفل‌ها و پاک کردن آلارم‌های قدیمی برای جلوگیری از گیرکردن سیکل‌ها.
-- راهنما: همین متن راهنما.
-- رفرش منو: بازسازی منوی اصلی.
+🔵 منوی اصلی:
+- چک یک نماد
+- اجرای دستی 1h / فوری 4h / فوری 1d / فوری 15m
+- اجرای چرخه‌ها (همهٔ تایم‌فریم‌ها)
 
-2️⃣ آلارم‌ها:
-- WMA20 جهت: وقتی شیب WMA20 از منفی به مثبت یا برعکس تغییر کند، آلارم جهت ثبت می‌شود.
-- Cross SMA20/100/200: برخورد WMA20 با SMA20/100/200 آلارم برخورد ثبت می‌کند.
-- جهت SMA20/100/200: تغییر جهت SMAها (از بالا به پایین یا برعکس) آلارم جهت ثبت می‌کند.
+🟢 مدیریت نمادها:
+- مدیریت نمادهای 1h / 4h / 1d / 15m
+- افزودن / حذف / نمایش نمادها
 
-3️⃣ گزارش آلارم‌ها:
-- در هر اجرای سیکل، آلارم‌های همان سیکل در LAST_ALARMS[group] ذخیره می‌شوند.
-- دستور «گزارش آلارم‌ها» آخرین آلارم‌های هر گروه را با نماد، تایم‌فریم، زمان و متن آلارم‌ها نشان می‌دهد.
+🟡 آلارم‌ها:
+- تنظیم آلارم‌ها (WMA و SMA)
+- گزارش آلارم‌ها (تاریخچه 10 سیکل آخر هر گروه)
 
-4️⃣ پایان هر سیکل:
-- در پایان هر سیکل (1h, 4h, 1d, 15m)، یک پیام به‌صورت:
-  «تعداد آلارم‌های این سیکل group: N»
-  ارسال می‌شود—even اگر N = 0 باشد.
+🔴 تنظیمات و وضعیت:
+- وضعیت سیستم (نمادها، PDF، Combined، verbose، enable، قفل‌ها)
+- تنظیمات پیشرفته (PDF، Combined، کندل‌ها، verbose، enable)
+- ریست برنامه
+- رفع خطای قفل‌ها (آزاد کردن همهٔ قفل‌ها)
 
-5️⃣ قفل‌ها و خطاها:
-- اگر خطایی مثل TEST#902 @ run_cycle_lock_busy_15m دیده شد، یعنی قفل آن گروه درگیر است.
-- با دکمه «رفع خطای قفل‌ها» همهٔ قفل‌ها آزاد می‌شوند و سیکل‌ها دوباره قابل اجرا می‌شوند.
+🟣 سایر:
+- راهنما
+- رفرش منو
+
+📌 آلارم‌ها:
+- در هر سیکل، آلارم‌های آن سیکل با زمان ثبت می‌شوند.
+- تاریخچه 10 سیکل آخر برای هر گروه نگه‌داری می‌شود.
+- پایان هر سیکل، فقط عدد تعداد آلارم همان سیکل به ربات ارسال می‌شود—even اگر صفر باشد.
+
+📌 قفل‌ها:
+- اگر TEST#902 @ run_cycle_lock_busy_15m دیده شد، یعنی قفل 15m درگیر است.
+- با دکمه «رفع خطای قفل‌ها» همهٔ قفل‌ها آزاد می‌شوند و سیکل‌ها دوباره اجرا می‌شوند.
+
+📌 عکس‌ها:
+- برای هر نماد، نمودار Plotly ساخته و به‌صورت PNG ذخیره و ارسال می‌شود.
+- اگر ساخت عکس خطا بدهد، سیکل ادامه می‌دهد ولی قفل حتماً آزاد می‌شود.
 """
 
 # =========================
@@ -245,16 +261,16 @@ HELP_TEXT = """
 
 def send_main_menu(chat_id):
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.row("چک یک نماد", "اجرای دستی 1h")
-    kb.row("اجرای فوری 4h", "اجرای فوری 1d")
-    kb.row("اجرای فوری 15m")
-    kb.row("مدیریت نمادهای 1h", "مدیریت نمادهای 4h")
-    kb.row("مدیریت نمادهای 1d", "مدیریت نمادهای 15m")
-    kb.row("تنظیم آلارم‌ها", "گزارش آلارم‌ها")
-    kb.row("وضعیت سیستم", "تنظیمات پیشرفته")
-    kb.row("اجرای چرخه‌ها", "ریست برنامه")
-    kb.row("رفع خطای قفل‌ها")
-    kb.row("راهنما", "رفرش منو")
+    kb.row("🔵 چک یک نماد", "🔵 اجرای دستی 1h")
+    kb.row("🔵 اجرای فوری 4h", "🔵 اجرای فوری 1d")
+    kb.row("🔵 اجرای فوری 15m")
+    kb.row("🟢 مدیریت نمادهای 1h", "🟢 مدیریت نمادهای 4h")
+    kb.row("🟢 مدیریت نمادهای 1d", "🟢 مدیریت نمادهای 15m")
+    kb.row("🟡 تنظیم آلارم‌ها", "🟡 گزارش آلارم‌ها")
+    kb.row("🔴 وضعیت سیستم", "🔴 تنظیمات پیشرفته")
+    kb.row("🔵 اجرای چرخه‌ها", "🔴 ریست برنامه")
+    kb.row("🔴 رفع خطای قفل‌ها")
+    kb.row("🟣 راهنما", "🟣 رفرش منو")
     bot_1h.send_message(chat_id, "منوی اصلی:", reply_markup=kb)
 
 @bot_1h.message_handler(commands=["start"])
@@ -265,22 +281,22 @@ def start_main(m):
     bot_1h.send_message(m.chat.id, HELP_TEXT)
     send_main_menu(m.chat.id)
 
-@bot_1h.message_handler(func=lambda m: m.text == "رفرش منو")
+@bot_1h.message_handler(func=lambda m: m.text == "🟣 رفرش منو")
 def refresh_main(m):
     send_main_menu(m.chat.id)
 
-@bot_1h.message_handler(func=lambda m: m.text == "ریست برنامه")
+@bot_1h.message_handler(func=lambda m: m.text == "🔴 ریست برنامه")
 def reset_app(m):
     reset_config()
     bot_1h.send_message(m.chat.id, "تنظیمات به حالت اولیه برگشت.")
     send_main_menu(m.chat.id)
 
-@bot_1h.message_handler(func=lambda m: m.text == "رفع خطای قفل‌ها")
+@bot_1h.message_handler(func=lambda m: m.text == "🔴 رفع خطای قفل‌ها")
 def clear_locks_cmd(m):
     force_clear_all_locks()
-    bot_1h.send_message(m.chat.id, "همهٔ قفل‌ها آزاد شدند و آلارم‌های قدیمی پاک شدند.\nاگر سیکل‌ها گیر کرده بودند، دوباره اجرا می‌شوند.")
+    bot_1h.send_message(m.chat.id, "همهٔ قفل‌ها آزاد شدند.\nاگر سیکل‌ها گیر کرده بودند، دوباره قابل اجرا هستند.")
 
-@bot_1h.message_handler(func=lambda m: m.text == "راهنما")
+@bot_1h.message_handler(func=lambda m: m.text == "🟣 راهنما")
 def help_menu(m):
     bot_1h.send_message(m.chat.id, HELP_TEXT)
 
@@ -305,19 +321,19 @@ def show_symbol_menu(chat_id, group):
     kb.row("بازگشت به منوی اصلی")
     bot_1h.send_message(chat_id, txt, reply_markup=kb)
 
-@bot_1h.message_handler(func=lambda m: m.text == "مدیریت نمادهای 1h")
+@bot_1h.message_handler(func=lambda m: m.text == "🟢 مدیریت نمادهای 1h")
 def manage_1h(m):
     show_symbol_menu(m.chat.id, "1h")
 
-@bot_1h.message_handler(func=lambda m: m.text == "مدیریت نمادهای 4h")
+@bot_1h.message_handler(func=lambda m: m.text == "🟢 مدیریت نمادهای 4h")
 def manage_4h(m):
     show_symbol_menu(m.chat.id, "4h")
 
-@bot_1h.message_handler(func=lambda m: m.text == "مدیریت نمادهای 1d")
+@bot_1h.message_handler(func=lambda m: m.text == "🟢 مدیریت نمادهای 1d")
 def manage_1d(m):
     show_symbol_menu(m.chat.id, "1d")
 
-@bot_1h.message_handler(func=lambda m: m.text == "مدیریت نمادهای 15m")
+@bot_1h.message_handler(func=lambda m: m.text == "🟢 مدیریت نمادهای 15m")
 def manage_15m(m):
     show_symbol_menu(m.chat.id, "15m")
 
@@ -368,7 +384,7 @@ def show_symbols_any(m):
 # تنظیم آلارم‌ها
 # =========================
 
-@bot_1h.message_handler(func=lambda m: m.text == "تنظیم آلارم‌ها")
+@bot_1h.message_handler(func=lambda m: m.text == "🟡 تنظیم آلارم‌ها")
 def alarm_settings(m):
     cfg = load_config()
     kb = types.InlineKeyboardMarkup()
@@ -575,6 +591,7 @@ def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars
         fig.write_image(png_path, width=1800, height=1100, scale=3)
     except Exception:
         debug_mark(bot_1h, ADMIN_CHAT, 805, "create_plotly_chart_write")
+        png_path = None  # عکس ساخته نشد
 
     return {
         "symbol":    symbol,
@@ -592,7 +609,7 @@ def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars
 # آلارم‌ها
 # =========================
 
-def detect_alarms(cfg: dict, info: dict, group: str):
+def detect_alarms(cfg: dict, info: dict, group: str, cycle_time: str, cycle_items: list):
     alarms = []
     wma    = info["wma"]
     slope  = info["wma_slope"]
@@ -639,7 +656,7 @@ def detect_alarms(cfg: dict, info: dict, group: str):
         dir_change(sma200, "SMA200")
 
     if alarms:
-        LAST_ALARMS[group].append({
+        cycle_items.append({
             "symbol":  info["symbol"],
             "interval":info["interval"],
             "time":    info["created_at"],
@@ -649,29 +666,33 @@ def detect_alarms(cfg: dict, info: dict, group: str):
     return alarms
 
 # =========================
-# گزارش آلارم‌ها
+# گزارش آلارم‌ها (تاریخچه 10 سیکل)
 # =========================
 
-@bot_1h.message_handler(func=lambda m: m.text == "گزارش آلارم‌ها")
+@bot_1h.message_handler(func=lambda m: m.text == "🟡 گزارش آلارم‌ها")
 def alarms_report(m):
     txt = ""
     for group in ["1h","4h","1d","15m"]:
-        if LAST_ALARMS[group]:
-            txt += f"آلارم‌های {group}:\n"
-            for item in LAST_ALARMS[group]:
-                txt += f"{item['symbol']} ({item['interval']}):\n"
-                for a in item["alarms"]:
-                    txt += f" - {a}\n"
-                txt += f"زمان: {item['time']}\n\n"
-    if not txt:
-        txt = "هیچ آلارمی ثبت نشده است."
+        history = ALARM_HISTORY[group]
+        if history:
+            txt += f"آلارم‌های {group} (تا 10 سیکل آخر):\n"
+            for cycle in history:
+                txt += f"سیکل در زمان: {cycle['cycle_time']}\n"
+                for item in cycle["items"]:
+                    txt += f"  {item['symbol']} ({item['interval']}):\n"
+                    for a in item["alarms"]:
+                        txt += f"   - {a}\n"
+                    txt += f"   زمان آلارم: {item['time']}\n"
+                txt += "\n"
+        else:
+            txt += f"برای {group} هنوز آلارمی ثبت نشده است.\n\n"
     bot_1h.send_message(m.chat.id, txt)
 
 # =========================
 # چک یک نماد
 # =========================
 
-@bot_1h.message_handler(func=lambda m: m.text == "چک یک نماد")
+@bot_1h.message_handler(func=lambda m: m.text == "🔵 چک یک نماد")
 def check_one_symbol(m):
     msg = bot_1h.send_message(m.chat.id, "نماد را وارد کنید (مثال: BTCUSDT):")
     bot_1h.register_next_step_handler(msg, do_check_one_symbol)
@@ -686,7 +707,14 @@ def do_check_one_symbol(m):
     png = f"check_{sym}_{ts}.png"
 
     info   = create_plotly_chart(sym, "1h", cfg["lookback_1h"], bars, png)
-    alarms = detect_alarms(cfg, info, "1h")
+    cycle_time = now_utc_str()
+    cycle_items = []
+    alarms = detect_alarms(cfg, info, "1h", cycle_time, cycle_items)
+
+    if cycle_items:
+        ALARM_HISTORY["1h"].append({"cycle_time": cycle_time, "items": cycle_items})
+        if len(ALARM_HISTORY["1h"]) > 10:
+            ALARM_HISTORY["1h"] = ALARM_HISTORY["1h"][-10:]
 
     caption = f"{sym} (چک 1h)"
     if alarms:
@@ -697,16 +725,18 @@ def do_check_one_symbol(m):
     if sym in LAST_MSG_ID:
         caption += f"\n🔗 نمودار قبلی: https://t.me/c/{m.chat.id}/{LAST_MSG_ID[sym]}"
 
-    with open(info["png_path"], "rb") as f:
-        msg = bot_1h.send_photo(m.chat.id, f, caption=caption)
-
-    LAST_MSG_ID[sym] = msg.message_id
+    if info["png_path"]:
+        with open(info["png_path"], "rb") as f:
+            msg = bot_1h.send_photo(m.chat.id, f, caption=caption)
+        LAST_MSG_ID[sym] = msg.message_id
+    else:
+        bot_1h.send_message(m.chat.id, caption + "\n⚠️ عکس ساخته نشد (مشکل write_image).")
 
 # =========================
 # وضعیت سیستم
 # =========================
 
-@bot_1h.message_handler(func=lambda m: m.text == "وضعیت سیستم")
+@bot_1h.message_handler(func=lambda m: m.text == "🔴 وضعیت سیستم")
 def system_status(m):
     cfg = load_config()
     txt = "وضعیت سیستم:\n"
@@ -735,7 +765,7 @@ def system_status(m):
 # تنظیمات پیشرفته
 # =========================
 
-@bot_1h.message_handler(func=lambda m: m.text == "تنظیمات پیشرفته")
+@bot_1h.message_handler(func=lambda m: m.text == "🔴 تنظیمات پیشرفته")
 def advanced_settings(m):
     cfg = load_config()
     kb = types.InlineKeyboardMarkup()
@@ -810,6 +840,8 @@ def make_combined_pages(group: str, bot, chat_id: int, image_paths):
     page  = []
 
     for img in image_paths:
+        if img is None:
+            continue
         page.append(img)
         if len(page) == 12:
             pages.append(page)
@@ -838,8 +870,11 @@ def make_combined_pages(group: str, bot, chat_id: int, image_paths):
         plt.savefig(out_path, dpi=150)
         plt.close()
 
-        with open(out_path, "rb") as f:
-            bot.send_photo(chat_id, f, caption=f"📄 صفحه {idx} – عکس تجمیعی {group}")
+        try:
+            with open(out_path, "rb") as f:
+                bot.send_photo(chat_id, f, caption=f"📄 صفحه {idx} – عکس تجمیعی {group}")
+        except:
+            debug_mark(bot, chat_id, 930, f"combined_send_{group}")
 
 # =========================
 # اجرای سیکل‌ها
@@ -856,11 +891,12 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
     bars_per_chart = cfg.get("bars_per_chart", max_bars)
     bars_per_chart = max(30, min(bars_per_chart, max_bars))
 
-    LAST_ALARMS[group] = []
+    cycle_time  = now_utc_str()
+    cycle_items = []
 
     if not lock.acquire(blocking=False):
         debug_mark(bot, chat_id, 902, f"run_cycle_lock_busy_{group}")
-        return [], 0
+        return [], 0, cycle_time, cycle_items
 
     pdf          = None
     pdf_filename = None
@@ -879,7 +915,7 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
     try:
         if verbose:
             try:
-                bot.send_message(chat_id, f"شروع چرخه {group}\n{now_utc_str()} UTC")
+                bot.send_message(chat_id, f"شروع چرخه {group}\n{cycle_time} UTC")
             except:
                 debug_mark(bot, chat_id, 904, f"run_cycle_start_msg_{group}")
 
@@ -900,7 +936,7 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
             png = f"{group}_{sym}_{ts}.png"
 
             info   = create_plotly_chart(sym, interval, lookback_days, bars_per_chart, png)
-            alarms = detect_alarms(cfg, info, group)
+            alarms = detect_alarms(cfg, info, group, cycle_time, cycle_items)
 
             if alarms:
                 alarms_count += len(alarms)
@@ -908,25 +944,33 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
             if not verbose and not alarms:
                 continue
 
-            alarm_images.append(info["png_path"])
+            if info["png_path"]:
+                alarm_images.append(info["png_path"])
 
-            caption = f"{sym} ({group})"
-            if alarms:
-                caption += "\n🔔 آلارم‌ها:"
-                for a in alarms:
-                    caption += f"\n - {a}"
+                caption = f"{sym} ({group})"
+                if alarms:
+                    caption += "\n🔔 آلارم‌ها:"
+                    for a in alarms:
+                        caption += f"\n - {a}"
 
-            if sym in LAST_MSG_ID:
-                caption += f"\n🔗 نمودار قبلی: https://t.me/c/{chat_id}/{LAST_MSG_ID[sym]}"
+                if sym in LAST_MSG_ID:
+                    caption += f"\n🔗 نمودار قبلی: https://t.me/c/{chat_id}/{LAST_MSG_ID[sym]}"
 
-            try:
-                with open(info["png_path"], "rb") as f:
-                    msg = bot.send_photo(chat_id, f, caption=caption)
-                LAST_MSG_ID[sym] = msg.message_id
-            except:
-                debug_mark(bot, chat_id, 908, f"run_cycle_send_photo_{group}")
+                try:
+                    with open(info["png_path"], "rb") as f:
+                        msg = bot.send_photo(chat_id, f, caption=caption)
+                    LAST_MSG_ID[sym] = msg.message_id
+                except:
+                    debug_mark(bot, chat_id, 908, f"run_cycle_send_photo_{group}")
+            else:
+                # عکس ساخته نشده، فقط متن آلارم‌ها را بفرست
+                if alarms:
+                    caption = f"{sym} ({group})\n🔔 آلارم‌ها:"
+                    for a in alarms:
+                        caption += f"\n - {a}"
+                    bot.send_message(chat_id, caption)
 
-            if verbose and pdf is not None:
+            if verbose and pdf is not None and info["png_path"]:
                 try:
                     img = plt.imread(info["png_path"])
                     fig, ax = plt.subplots(figsize=(10, 6))
@@ -948,7 +992,7 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
             except:
                 debug_mark(bot, chat_id, 910, f"run_cycle_pdf_send_{group}")
 
-        return alarm_images, alarms_count
+        return alarm_images, alarms_count, cycle_time, cycle_items
 
     finally:
         lock.release()
@@ -965,15 +1009,25 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str,
 
     min_dur = cfg.get("cycle_min_duration_sec", 5)
 
-    start        = now_utc()
-    alarm_images, alarms_count = run_cycle_once(group, bot, chat_id, symbols, interval, lookback_days, max_bars, make_pdf)
-    end          = now_utc()
+    start = now_utc()
+    alarm_images, alarms_count, cycle_time, cycle_items = run_cycle_once(
+        group, bot, chat_id, symbols, interval, lookback_days, max_bars, make_pdf
+    )
+    end   = now_utc()
 
     elapsed = (end - start).total_seconds()
 
     if elapsed < min_dur and group in ["1h","4h","1d"]:
         debug_mark(bot, chat_id, 2001, f"run_cycle_fallback_{group}")
-        alarm_images, alarms_count = run_cycle_once(group, bot, chat_id, symbols, interval, lookback_days, max_bars, make_pdf)
+        alarm_images, alarms_count, cycle_time, cycle_items = run_cycle_once(
+            group, bot, chat_id, symbols, interval, lookback_days, max_bars, make_pdf
+        )
+
+    # ثبت تاریخچه آلارم‌ها برای این سیکل
+    if cycle_items:
+        ALARM_HISTORY[group].append({"cycle_time": cycle_time, "items": cycle_items})
+        if len(ALARM_HISTORY[group]) > 10:
+            ALARM_HISTORY[group] = ALARM_HISTORY[group][-10:]
 
     if cfg.get("make_combined_all", True):
         make_combined_pages(group, bot, chat_id, alarm_images)
@@ -987,7 +1041,7 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str,
 # اجرای دستی
 # =========================
 
-@bot_1h.message_handler(func=lambda m: m.text == "اجرای دستی 1h")
+@bot_1h.message_handler(func=lambda m: m.text == "🔵 اجرای دستی 1h")
 def manual_1h(m):
     cfg = load_config()
     if not cfg.get("enable_1h", True):
@@ -1008,7 +1062,7 @@ def manual_1h(m):
         daemon=True
     ).start()
 
-@bot_1h.message_handler(func=lambda m: m.text == "اجرای فوری 4h")
+@bot_1h.message_handler(func=lambda m: m.text == "🔵 اجرای فوری 4h")
 def manual_4h(m):
     cfg = load_config()
     if not cfg.get("enable_4h", True):
@@ -1029,7 +1083,7 @@ def manual_4h(m):
         daemon=True
     ).start()
 
-@bot_1h.message_handler(func=lambda m: m.text == "اجرای فوری 1d")
+@bot_1h.message_handler(func=lambda m: m.text == "🔵 اجرای فوری 1d")
 def manual_1d(m):
     cfg = load_config()
     if not cfg.get("enable_1d", True):
@@ -1050,7 +1104,7 @@ def manual_1d(m):
         daemon=True
     ).start()
 
-@bot_1h.message_handler(func=lambda m: m.text == "اجرای فوری 15m")
+@bot_1h.message_handler(func=lambda m: m.text == "🔵 اجرای فوری 15m")
 def manual_15m(m):
     cfg = load_config()
     if not cfg.get("enable_15m", True):
@@ -1071,7 +1125,7 @@ def manual_15m(m):
         daemon=True
     ).start()
 
-@bot_1h.message_handler(func=lambda m: m.text == "اجرای چرخه‌ها")
+@bot_1h.message_handler(func=lambda m: m.text == "🔵 اجرای چرخه‌ها")
 def run_all_cycles(m):
     cfg = load_config()
 
