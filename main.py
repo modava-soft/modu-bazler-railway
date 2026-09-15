@@ -571,7 +571,6 @@ def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars
 
         fig.add_trace(go.Scatter(x=df.index, y=df["WMA20"], mode="lines", name="WMA20", line=dict(color="green", width=2, dash="dot")), row=1, col=1)
 
-
         fig.add_trace(go.Scatter(x=df.index, y=df["RSI14"], mode="lines", name="RSI14", line=dict(color="brown")), row=2, col=1)
         fig.add_hline(y=70, line=dict(color="red", dash="dash"), row=2, col=1)
         fig.add_hline(y=30, line=dict(color="green", dash="dash"), row=2, col=1)
@@ -618,9 +617,6 @@ def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars
         "sma20":     df["SMA20"].tolist()      if "SMA20"      in df.columns else [],
         "sma100":    df["SMA100"].tolist()     if "SMA100"     in df.columns else [],
         "sma200":    df["SMA200"].tolist()     if "SMA200"     in df.columns else []
-
-
-)
     }
 
 # =========================
