@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-# Modu Bazler v7.2 — نسخه پایدار با:
-# - گزارش آلارم‌ها مثل ورژن ۵ (تاریخچه ۱۰ سیکل آخر هر تایم‌فریم)
-# - اجرای سیکل‌ها ساده و قابل‌اعتماد مثل ورژن‌های قبلی
-# - قفل‌ها برای جلوگیری از تداخل، با امکان رفع دستی
-# - ساخت و ارسال عکس‌ها و PDF
+# Modu Bazler v7.3 — نسخه پایدار با:
+# - verbose واقعی: اگر OFF باشد فقط نمادهای آلارم‌دار پیام می‌شوند (بدون پیام‌های میانی)
+# - گزارش آلارم‌ها ساده و قابل‌اعتماد (۱۰ سیکل آخر هر تایم‌فریم)
+# - عکس تجمیعی ۱۲تایی از همهٔ نمودارهای همان سیکل (نه فقط آلارم‌دارها)
+# - قفل‌ها با کلید رفع دستی
 
 import os, json, time, threading, datetime as dt
 import requests, numpy as np, pandas as pd
@@ -28,7 +28,7 @@ PDF_DIR    = os.path.join(DATA_DIR, "pdf")
 for d in [DATA_DIR, CHARTS_DIR, PDF_DIR]:
     os.makedirs(d, exist_ok=True)
 
-CONFIG_PATH = os.path.join(DATA_DIR, "config_v7_2.json")
+CONFIG_PATH = os.path.join(DATA_DIR, "config_v7_3.json")
 
 ALL_SYMBOLS_100 = [
     "BTCUSDT","ETHUSDT","BNBUSDT","XRPUSDT","ADAUSDT","SOLUSDT","DOGEUSDT","TRXUSDT","LINKUSDT","MATICUSDT",
@@ -91,7 +91,7 @@ DEFAULT_CONFIG = {
     "enable_15m":  True,
 }
 
-# تاریخچه آلارم‌ها مثل ورژن ۵: هر آیتم = {"cycle_time": "...", "items": [ {...} ]}
+# تاریخچه آلارم‌ها: هر آیتم = {"cycle_time": "...", "items": [ {...} ]}
 ALARM_HISTORY = {
     "1h":  [],
     "4h":  [],
@@ -212,7 +212,7 @@ def force_clear_all_locks():
 # =========================
 
 HELP_TEXT = """
-راهنمای Modu Bazler v7.2:
+راهنمای Modu Bazler v7.3:
 
 🔵 منوی اصلی:
 - چک یک نماد
@@ -237,7 +237,9 @@ HELP_TEXT = """
 - راهنما
 - رفرش منو
 
-پایان هر سیکل، فقط عدد تعداد آلارم همان سیکل به ربات ارسال می‌شود—even اگر صفر باشد.
+نکتهٔ مهم:
+- اگر verbose هر گروه OFF باشد، فقط نمادهای آلارم‌دار همان سیکل به ربات پیام می‌شوند.
+- پایان هر سیکل، فقط عدد تعداد آلارم همان سیکل به ربات ارسال می‌شود—even اگر صفر باشد.
 """
 
 # =========================
@@ -644,7 +646,6 @@ def detect_alarms(cfg: dict, info: dict, group: str, cycle_time: str, cycle_item
 
     return alarms
 
-# ذخیرهٔ تاریخچهٔ آلارم‌ها مثل ورژن ۵
 def store_cycle_alarms(group: str, cycle_time: str, cycle_items: list):
     if not cycle_items:
         return
@@ -656,7 +657,7 @@ def store_cycle_alarms(group: str, cycle_time: str, cycle_items: list):
         ALARM_HISTORY[group] = ALARM_HISTORY[group][-10:]
 
 # =========================
-# گزارش آلارم‌ها مثل ورژن ۵
+# گزارش آلارم‌ها ساده
 # =========================
 
 @bot_1h.message_handler(func=lambda m: m.text == "🟡 گزارش آلارم‌ها")
@@ -821,7 +822,7 @@ def advanced_settings_handler(c):
     advanced_settings(c.message)
 
 # =========================
-# عکس تجمیعی ۱۲تایی
+# عکس تجمیعی ۱۲تایی (از همهٔ نمودارهای سیکل)
 # =========================
 
 def make_combined_pages(group: str, bot, chat_id: int, image_paths):
@@ -869,7 +870,7 @@ def make_combined_pages(group: str, bot, chat_id: int, image_paths):
             debug_mark(bot, chat_id, 930, f"combined_send_{group}")
 
 # =========================
-# اجرای سیکل‌ها (ساده مثل ورژن‌های قبلی)
+# اجرای سیکل‌ها (با verbose واقعی)
 # =========================
 
 def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
@@ -888,12 +889,12 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
 
     if not lock.acquire(blocking=False):
         debug_mark(bot, chat_id, 902, f"run_cycle_lock_busy_{group}")
-        return [], 0, cycle_time, cycle_items
+        return [], [], 0, cycle_time, cycle_items
 
     pdf          = None
     pdf_filename = None
 
-    if verbose and make_pdf and group in ["1h", "1d"]:
+    if make_pdf and group in ["1h", "1d"]:
         pdf_filename = os.path.join(PDF_DIR, f"{group}_{now_utc().strftime('%Y%m%d_%H%M%S')}.pdf")
         try:
             pdf = PdfPages(pdf_filename)
@@ -901,6 +902,7 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
             debug_mark(bot, chat_id, 905, f"run_cycle_pdf_init_{group}")
             pdf = None
 
+    all_images   = []
     alarm_images = []
     alarms_count = 0
 
@@ -924,12 +926,25 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
             info   = create_plotly_chart(sym, interval, lookback_days, bars_per_chart, png)
             alarms = detect_alarms(cfg, info, group, cycle_time, cycle_items)
 
+            if info["png_path"]:
+                all_images.append(info["png_path"])
+
             if alarms:
                 alarms_count += len(alarms)
+                if info["png_path"]:
+                    alarm_images.append(info["png_path"])
 
-            if info["png_path"]:
-                alarm_images.append(info["png_path"])
+            # ارسال نمودارها:
+            # اگر verbose ON: همهٔ نمادها
+            # اگر verbose OFF: فقط نمادهای آلارم‌دار
+            send_this_chart = False
+            if verbose:
+                send_this_chart = True
+            else:
+                if alarms:
+                    send_this_chart = True
 
+            if send_this_chart and info["png_path"]:
                 caption = f"{sym} ({group})"
                 if alarms:
                     caption += "\n🔔 آلارم‌ها:"
@@ -943,14 +958,29 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
                     msg = bot.send_photo(chat_id, f, caption=caption)
                 LAST_MSG_ID[sym] = msg.message_id
 
+            # PDF فقط اگر فعال باشد
+            if pdf is not None and info["png_path"]:
+                try:
+                    img = plt.imread(info["png_path"])
+                    fig_pdf, ax_pdf = plt.subplots(figsize=(10, 6))
+                    ax_pdf.imshow(img)
+                    ax_pdf.axis("off")
+                    pdf.savefig(fig_pdf)
+                    plt.close(fig_pdf)
+                except:
+                    debug_mark(bot, chat_id, 906, f"pdf_add_{group}")
+
             time.sleep(0.3)
 
-        if verbose and pdf is not None:
+        if pdf is not None:
             pdf.close()
-            with open(pdf_filename, "rb") as f:
-                bot.send_document(chat_id, f, caption=f"گزارش PDF کامل سیکل {group}")
+            try:
+                with open(pdf_filename, "rb") as f:
+                    bot.send_document(chat_id, f, caption=f"گزارش PDF کامل سیکل {group}")
+            except:
+                debug_mark(bot, chat_id, 907, f"pdf_send_{group}")
 
-        return alarm_images, alarms_count, cycle_time, cycle_items
+        return all_images, alarm_images, alarms_count, cycle_time, cycle_items
 
     finally:
         lock.release()
@@ -965,14 +995,15 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str,
     if group == "1d"  and not cfg.get("enable_1d",  True): return
     if group == "15m" and not cfg.get("enable_15m", True): return
 
-    alarm_images, alarms_count, cycle_time, cycle_items = run_cycle_once(
+    all_images, alarm_images, alarms_count, cycle_time, cycle_items = run_cycle_once(
         group, bot, chat_id, symbols, interval, lookback_days, max_bars, make_pdf
     )
 
     store_cycle_alarms(group, cycle_time, cycle_items)
 
+    # عکس تجمیعی از همهٔ نمودارهای سیکل (نه فقط آلارم‌دارها)
     if cfg.get("make_combined_all", True):
-        make_combined_pages(group, bot, chat_id, alarm_images)
+        make_combined_pages(group, bot, chat_id, all_images)
 
     bot.send_message(chat_id, f"تعداد آلارم‌های این سیکل {group}: {alarms_count}")
 
