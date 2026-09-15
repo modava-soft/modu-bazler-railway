@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-# Modu Bazler v7.1 — نسخه پایدار با:
-# - رفع قفل‌ها (به‌خصوص 15m)
-# - تاریخچه آلارم‌ها برای 10 سیکل آخر هر گروه
-# - منوی دسته‌بندی‌شده با ایموجی
-# - ساخت و ارسال عکس‌ها با کنترل خطا
+# Modu Bazler v7.2 — نسخه پایدار با:
+# - گزارش آلارم‌ها مثل ورژن ۵ (تاریخچه ۱۰ سیکل آخر هر تایم‌فریم)
+# - اجرای سیکل‌ها ساده و قابل‌اعتماد مثل ورژن‌های قبلی
+# - قفل‌ها برای جلوگیری از تداخل، با امکان رفع دستی
+# - ساخت و ارسال عکس‌ها و PDF
 
 import os, json, time, threading, datetime as dt
 import requests, numpy as np, pandas as pd
@@ -28,7 +28,7 @@ PDF_DIR    = os.path.join(DATA_DIR, "pdf")
 for d in [DATA_DIR, CHARTS_DIR, PDF_DIR]:
     os.makedirs(d, exist_ok=True)
 
-CONFIG_PATH = os.path.join(DATA_DIR, "config_v7_1.json")
+CONFIG_PATH = os.path.join(DATA_DIR, "config_v7_2.json")
 
 ALL_SYMBOLS_100 = [
     "BTCUSDT","ETHUSDT","BNBUSDT","XRPUSDT","ADAUSDT","SOLUSDT","DOGEUSDT","TRXUSDT","LINKUSDT","MATICUSDT",
@@ -84,7 +84,6 @@ DEFAULT_CONFIG = {
     "cycle_progress_batch": 5,
 
     "lock_timeout_sec":      600,
-    "cycle_min_duration_sec":5,
 
     "enable_1h":   True,
     "enable_4h":   True,
@@ -92,6 +91,7 @@ DEFAULT_CONFIG = {
     "enable_15m":  True,
 }
 
+# تاریخچه آلارم‌ها مثل ورژن ۵: هر آیتم = {"cycle_time": "...", "items": [ {...} ]}
 ALARM_HISTORY = {
     "1h":  [],
     "4h":  [],
@@ -212,7 +212,7 @@ def force_clear_all_locks():
 # =========================
 
 HELP_TEXT = """
-راهنمای Modu Bazler v7.1:
+راهنمای Modu Bazler v7.2:
 
 🔵 منوی اصلی:
 - چک یک نماد
@@ -644,27 +644,44 @@ def detect_alarms(cfg: dict, info: dict, group: str, cycle_time: str, cycle_item
 
     return alarms
 
+# ذخیرهٔ تاریخچهٔ آلارم‌ها مثل ورژن ۵
+def store_cycle_alarms(group: str, cycle_time: str, cycle_items: list):
+    if not cycle_items:
+        return
+    ALARM_HISTORY[group].append({
+        "cycle_time": cycle_time,
+        "items": cycle_items
+    })
+    if len(ALARM_HISTORY[group]) > 10:
+        ALARM_HISTORY[group] = ALARM_HISTORY[group][-10:]
+
 # =========================
-# گزارش آلارم‌ها (تاریخچه 10 سیکل)
+# گزارش آلارم‌ها مثل ورژن ۵
 # =========================
 
 @bot_1h.message_handler(func=lambda m: m.text == "🟡 گزارش آلارم‌ها")
 def alarms_report(m):
-    txt = ""
-    for group in ["1h","4h","1d","15m"]:
-        history = ALARM_HISTORY[group]
-        if history:
-            txt += f"آلارم‌های {group} (تا 10 سیکل آخر):\n"
-            for cycle in history:
-                txt += f"سیکل در زمان: {cycle['cycle_time']}\n"
-                for item in cycle["items"]:
-                    txt += f"  {item['symbol']} ({item['interval']}):\n"
-                    for a in item["alarms"]:
-                        txt += f"   - {a}\n"
-                    txt += f"   زمان آلارم: {item['time']}\n"
-                txt += "\n"
-        else:
-            txt += f"برای {group} هنوز آلارمی ثبت نشده است.\n\n"
+    txt = "گزارش آلارم‌ها (تا ۱۰ سیکل آخر):\n\n"
+
+    for group in ["15m", "1h", "4h", "1d"]:
+        history = ALARM_HISTORY.get(group, [])
+        txt += f"🔹 تایم‌فریم {group}:\n"
+
+        if not history:
+            txt += "  هنوز آلارمی ثبت نشده است.\n\n"
+            continue
+
+        for cycle in history:
+            txt += f"  🕒 سیکل در زمان: {cycle['cycle_time']}\n"
+            for item in cycle["items"]:
+                txt += f"    • {item['symbol']} ({item['interval']}):\n"
+                for a in item["alarms"]:
+                    txt += f"      - {a}\n"
+                txt += f"      زمان آلارم: {item['time']}\n"
+            txt += "\n"
+
+        txt += "\n"
+
     bot_1h.send_message(m.chat.id, txt)
 
 # =========================
@@ -690,10 +707,7 @@ def do_check_one_symbol(m):
     cycle_items = []
     alarms = detect_alarms(cfg, info, "1h", cycle_time, cycle_items)
 
-    if cycle_items:
-        ALARM_HISTORY["1h"].append({"cycle_time": cycle_time, "items": cycle_items})
-        if len(ALARM_HISTORY["1h"]) > 10:
-            ALARM_HISTORY["1h"] = ALARM_HISTORY["1h"][-10:]
+    store_cycle_alarms("1h", cycle_time, cycle_items)
 
     caption = f"{sym} (چک 1h)"
     if alarms:
@@ -737,7 +751,6 @@ def system_status(m):
     txt += f"enable_1d: {'ON' if cfg.get('enable_1d', True) else 'OFF'}\n"
     txt += f"enable_15m: {'ON' if cfg.get('enable_15m', True) else 'OFF'}\n"
     txt += f"lock_timeout_sec: {cfg.get('lock_timeout_sec', 600)}\n"
-    txt += f"cycle_min_duration_sec: {cfg.get('cycle_min_duration_sec', 5)}\n"
     bot_1h.send_message(m.chat.id, txt)
 
 # =========================
@@ -856,7 +869,7 @@ def make_combined_pages(group: str, bot, chat_id: int, image_paths):
             debug_mark(bot, chat_id, 930, f"combined_send_{group}")
 
 # =========================
-# اجرای سیکل‌ها
+# اجرای سیکل‌ها (ساده مثل ورژن‌های قبلی)
 # =========================
 
 def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
@@ -893,10 +906,7 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
 
     try:
         if verbose:
-            try:
-                bot.send_message(chat_id, f"شروع چرخه {group}\n{cycle_time} UTC")
-            except:
-                debug_mark(bot, chat_id, 904, f"run_cycle_start_msg_{group}")
+            bot.send_message(chat_id, f"شروع چرخه {group}\n{cycle_time} UTC")
 
         unique_symbols = list(dict.fromkeys(symbols))
         total     = len(unique_symbols)
@@ -906,10 +916,7 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
             processed += 1
 
             if verbose and (processed % batch_size == 0 or processed == 1 or processed == total):
-                try:
-                    bot.send_message(chat_id, f"چرخه {group}: {processed}/{total}")
-                except:
-                    debug_mark(bot, chat_id, 906, f"run_cycle_progress_{group}")
+                bot.send_message(chat_id, f"چرخه {group}: {processed}/{total}")
 
             ts  = now_utc().strftime("%Y%m%d_%H%M%S")
             png = f"{group}_{sym}_{ts}.png"
@@ -919,9 +926,6 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
 
             if alarms:
                 alarms_count += len(alarms)
-
-            if not verbose and not alarms:
-                continue
 
             if info["png_path"]:
                 alarm_images.append(info["png_path"])
@@ -935,40 +939,16 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
                 if sym in LAST_MSG_ID:
                     caption += f"\n🔗 نمودار قبلی: https://t.me/c/{chat_id}/{LAST_MSG_ID[sym]}"
 
-                try:
-                    with open(info["png_path"], "rb") as f:
-                        msg = bot.send_photo(chat_id, f, caption=caption)
-                    LAST_MSG_ID[sym] = msg.message_id
-                except:
-                    debug_mark(bot, chat_id, 908, f"run_cycle_send_photo_{group}")
-            else:
-                if alarms:
-                    caption = f"{sym} ({group})\n🔔 آلارم‌ها:"
-                    for a in alarms:
-                        caption += f"\n - {a}"
-                    bot.send_message(chat_id, caption)
-
-            if verbose and pdf is not None and info["png_path"]:
-                try:
-                    img = plt.imread(info["png_path"])
-                    fig, ax = plt.subplots(figsize=(10, 6))
-                    ax.imshow(img)
-                    ax.axis("off")
-                    ax.set_title(f"{sym} – {group}")
-                    pdf.savefig(fig)
-                    plt.close(fig)
-                except:
-                    debug_mark(bot, chat_id, 909, f"run_cycle_pdf_add_{group}")
+                with open(info["png_path"], "rb") as f:
+                    msg = bot.send_photo(chat_id, f, caption=caption)
+                LAST_MSG_ID[sym] = msg.message_id
 
             time.sleep(0.3)
 
         if verbose and pdf is not None:
-            try:
-                pdf.close()
-                with open(pdf_filename, "rb") as f:
-                    bot.send_document(chat_id, f, caption=f"گزارش PDF کامل سیکل {group}")
-            except:
-                debug_mark(bot, chat_id, 910, f"run_cycle_pdf_send_{group}")
+            pdf.close()
+            with open(pdf_filename, "rb") as f:
+                bot.send_document(chat_id, f, caption=f"گزارش PDF کامل سیکل {group}")
 
         return alarm_images, alarms_count, cycle_time, cycle_items
 
@@ -985,34 +965,16 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str,
     if group == "1d"  and not cfg.get("enable_1d",  True): return
     if group == "15m" and not cfg.get("enable_15m", True): return
 
-    min_dur = cfg.get("cycle_min_duration_sec", 5)
-
-    start = now_utc()
     alarm_images, alarms_count, cycle_time, cycle_items = run_cycle_once(
         group, bot, chat_id, symbols, interval, lookback_days, max_bars, make_pdf
     )
-    end   = now_utc()
 
-    elapsed = (end - start).total_seconds()
-
-    if elapsed < min_dur and group in ["1h","4h","1d"]:
-        debug_mark(bot, chat_id, 2001, f"run_cycle_fallback_{group}")
-        alarm_images, alarms_count, cycle_time, cycle_items = run_cycle_once(
-            group, bot, chat_id, symbols, interval, lookback_days, max_bars, make_pdf
-        )
-
-    if cycle_items:
-        ALARM_HISTORY[group].append({"cycle_time": cycle_time, "items": cycle_items})
-        if len(ALARM_HISTORY[group]) > 10:
-            ALARM_HISTORY[group] = ALARM_HISTORY[group][-10:]
+    store_cycle_alarms(group, cycle_time, cycle_items)
 
     if cfg.get("make_combined_all", True):
         make_combined_pages(group, bot, chat_id, alarm_images)
 
-    try:
-        bot.send_message(chat_id, f"تعداد آلارم‌های این سیکل {group}: {alarms_count}")
-    except:
-        debug_mark(bot, chat_id, 911, f"send_alarm_count_{group}")
+    bot.send_message(chat_id, f"تعداد آلارم‌های این سیکل {group}: {alarms_count}")
 
 # =========================
 # اجرای دستی
