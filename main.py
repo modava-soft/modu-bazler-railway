@@ -571,13 +571,7 @@ def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars
 
         fig.add_trace(go.Scatter(x=df.index, y=df["WMA20"], mode="lines", name="WMA20", line=dict(color="green", width=2, dash="dot")), row=1, col=1)
 
-# خط افقی پایان سیکل
-last_price = df["c"].iloc[-1]
-fig.add_hline(
-    y=last_price,
-    line=dict(color="purple", width=2),
-    row=1, col=1
-)
+
         fig.add_trace(go.Scatter(x=df.index, y=df["RSI14"], mode="lines", name="RSI14", line=dict(color="brown")), row=2, col=1)
         fig.add_hline(y=70, line=dict(color="red", dash="dash"), row=2, col=1)
         fig.add_hline(y=30, line=dict(color="green", dash="dash"), row=2, col=1)
