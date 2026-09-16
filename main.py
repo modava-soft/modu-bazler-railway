@@ -569,7 +569,36 @@ def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars
         fig.add_trace(go.Scatter(x=df.index, y=df["SMA100"], mode="lines", name="SMA100", line=dict(color="orange")), row=1, col=1)
         fig.add_trace(go.Scatter(x=df.index, y=df["SMA200"], mode="lines", name="SMA200", line=dict(color="purple")), row=1, col=1)
 
-        fig.add_trace(go.Scatter(x=df.index, y=df["WMA20"], mode="lines", name="WMA20", line=dict(color="green", width=2, dash="dot")), row=1, col=1)
+       # WMA20 دو‌رنگ (صعودی سبز، نزولی قرمز)
+        wma   = df["WMA20"]
+        slope = df["WMA20_slope"]
+
+        wma_up   = wma.where(slope >= 0)
+        wma_down = wma.where(slope < 0)
+
+# بخش صعودی WMA
+        fig.add_trace(
+          go.Scatter(
+        x=df.index,
+        y=wma_up,
+        mode="lines",
+        name="WMA20 Up",
+        line=dict(color="green", width=2)
+    ),
+    row=1, col=1
+)
+
+# بخش نزولی WMA
+        fig.add_trace(
+    go.Scatter(
+        x=df.index,
+        y=wma_down,
+        mode="lines",
+        name="WMA20 Down",
+        line=dict(color="red", width=2)
+    ),
+    row=1, col=1
+)ow=1, col=1)
 
         fig.add_trace(go.Scatter(x=df.index, y=df["RSI14"], mode="lines", name="RSI14", line=dict(color="brown")), row=2, col=1)
         fig.add_hline(y=70, line=dict(color="red", dash="dash"), row=2, col=1)
