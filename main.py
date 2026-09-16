@@ -573,6 +573,11 @@ def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars
         fig.add_trace(go.Scatter(x=df.index, y=df["SMA100"], mode="lines", name="SMA100", line=dict(color="orange")), row=1, col=1)
         fig.add_trace(go.Scatter(x=df.index, y=df["SMA200"], mode="lines", name="SMA200", line=dict(color="purple")), row=1, col=1)
 
+
+if df["WMA20_slope"].iloc[-1] > 0:
+    wma_color = "green"   # صعودی
+else:
+    wma_color = "red"     # 
         fig.add_trace(go.Scatter(x=df.index, y=df["WMA20"], mode="lines", name="WMA20", line=dict(color=wma_color, width=1)), row=1, col=1)
 
         fig.add_trace(go.Scatter(x=df.index, y=df["RSI14"], mode="lines", name="RSI14", line=dict(color="brown")), row=2, col=1)
