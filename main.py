@@ -545,9 +545,9 @@ def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars
 
     df = compute_indicators(df)
     if df["WMA20_slope"].iloc[-1] > 0:
-            wma_color = "green"   # صعودی
-        else:
-            wma_color = "red"     # نزولی
+        wma_color = "green"   # صعودی
+    else:
+        wma_color = "red"     # نزولی
 
     fig = make_subplots(
         rows=3, cols=1,
