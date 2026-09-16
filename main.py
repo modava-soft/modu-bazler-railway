@@ -598,7 +598,7 @@ def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars
         line=dict(color="red", width=2)
     ),
     row=1, col=1
-)ow=1, col=1)
+)
 
         fig.add_trace(go.Scatter(x=df.index, y=df["RSI14"], mode="lines", name="RSI14", line=dict(color="brown")), row=2, col=1)
         fig.add_hline(y=70, line=dict(color="red", dash="dash"), row=2, col=1)
