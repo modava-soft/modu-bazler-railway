@@ -60,7 +60,7 @@ DEFAULT_CONFIG = {
     "lookback_1d":  180,
     "lookback_15m": 3,
 
-    "max_bars":       300,
+    "max_bars":       800,
     "bars_per_chart": 90,
 
     "alarm_wma_direction":   True,
@@ -449,7 +449,7 @@ def _kucoin_interval(i: str) -> str:
     return {"1h": "1hour", "4h": "4hour", "1d": "1day", "15m": "15min"}[i]
 
 def fetch_ohlc(symbol: str, interval: str, lookback_days: int, max_bars: int) -> pd.DataFrame:
-    limit = max(500, max_bars)
+    limit = max(1000, max_bars)
 
     try:
         url = "https://api.binance.com/api/v3/klines"
@@ -535,6 +535,7 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
 # =========================
 
 def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars: int, png_name: str):
+
     df = fetch_ohlc(symbol, interval, lookback_days, max_bars)
 
     if df.empty:
@@ -544,19 +545,21 @@ def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars
         df = df.tail(max_bars)[["o","h","l","c","v"]]
 
     df = compute_indicators(df)
-    if df["WMA20_slope"].iloc[-1] > 0:
-        wma_color = "green"   # صعودی
-    else:
-        wma_color = "red"     # نزولی
 
     fig = make_subplots(
-        rows=3, cols=1,
+        rows=2, cols=1,
         shared_xaxes=True,
-        row_heights=[0.6, 0.2, 0.2],
+        row_heights=[0.7, 0.3],
         vertical_spacing=0.03
     )
 
-    try:
+    # -------------------------
+    # نمودار قیمت + اندیکاتورها
+    # -------------------------
+
+    if not df.empty:
+
+        # کندل‌ها
         fig.add_trace(
             go.Candlestick(
                 x=df.index,
@@ -569,51 +572,84 @@ def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars
             row=1, col=1
         )
 
-        fig.add_trace(go.Scatter(x=df.index, y=df["SMA20"],  mode="lines", name="SMA20",  line=dict(color="blue")),   row=1, col=1)
-        fig.add_trace(go.Scatter(x=df.index, y=df["SMA100"], mode="lines", name="SMA100", line=dict(color="orange")), row=1, col=1)
-        fig.add_trace(go.Scatter(x=df.index, y=df["SMA200"], mode="lines", name="SMA200", line=dict(color="purple")), row=1, col=1)
+        # SMA20
+        fig.add_trace(go.Scatter(
+            x=df.index, y=df["SMA20"], mode="lines",
+            name="SMA20", line=dict(color="blue")
+        ), row=1, col=1)
 
+        # SMA100
+        fig.add_trace(go.Scatter(
+            x=df.index, y=df["SMA100"], mode="lines",
+            name="SMA100", line=dict(color="orange")
+        ), row=1, col=1)
 
-        if df["WMA20_slope"].iloc[-1] > 0:
-            wma_color = "green"   # صعودی
-        else:
-            wma_color = "red"     # 
-        fig.add_trace(go.Scatter(x=df.index, y=df["WMA20"], mode="lines", name="WMA20", line=dict(color=wma_color, width=1)), row=1, col=1)
+        # SMA200
+        fig.add_trace(go.Scatter(
+            x=df.index, y=df["SMA200"], mode="lines",
+            name="SMA200", line=dict(color="purple")
+        ), row=1, col=1)
 
-        fig.add_trace(go.Scatter(x=df.index, y=df["RSI14"], mode="lines", name="RSI14", line=dict(color="brown")), row=2, col=1)
-        fig.add_hline(y=70, line=dict(color="red", dash="dash"), row=2, col=1)
-        fig.add_hline(y=30, line=dict(color="green", dash="dash"), row=2, col=1)
+        # -------------------------
+        # WMA20 دو‌رنگ (صعودی/نزولی)
+        # -------------------------
 
-        fig.add_trace(go.Scatter(x=df.index, y=df["MACD"],        mode="lines", name="MACD",   line=dict(color="black")),   row=3, col=1)
-        fig.add_trace(go.Scatter(x=df.index, y=df["MACD_signal"], mode="lines", name="Signal", line=dict(color="magenta")), row=3, col=1)
-        fig.add_trace(go.Bar(x=df.index, y=df["MACD_hist"], name="Hist", marker_color="gray"), row=3, col=1)
+        wma   = df["WMA20"]
+        slope = df["WMA20_slope"]
 
-        fig.update_layout(
-            title=f"{symbol} – {interval}",
-            xaxis_rangeslider_visible=False,
-            template="plotly_white",
-            height=1000
+        wma_up   = wma.where(slope >= 0)
+        wma_down = wma.where(slope < 0)
+
+        fig.add_trace(
+            go.Scatter(
+                x=df.index,
+                y=wma_up,
+                mode="lines",
+                name="WMA20 Up",
+                line=dict(color="green", width=2)
+            ),
+            row=1, col=1
         )
 
-        fig.add_annotation(
-            text=f"{symbol} – {interval}",
-            xref="paper", yref="paper",
-            x=0.5, y=1.05,
-            showarrow=False,
-            font=dict(size=30, color="black")
+        fig.add_trace(
+            go.Scatter(
+                x=df.index,
+                y=wma_down,
+                mode="lines",
+                name="WMA20 Down",
+                line=dict(color="red", width=2)
+            ),
+            row=1, col=1
         )
 
-        fig.update_yaxes(side="right", showgrid=True)
+        # -------------------------
+        # خط افقی پایان سیکل
+        # -------------------------
 
-    except Exception:
-        debug_mark(bot_1h, ADMIN_CHAT, 804, "create_plotly_chart_build")
+        last_price = df["c"].iloc[-1]
+
+        fig.add_hline(
+            y=last_price,
+            line=dict(color="purple", width=2),
+            row=1, col=1
+        )
+
+    # -------------------------
+    # تنظیمات نهایی نمودار
+    # -------------------------
+
+    fig.update_layout(
+        title=f"{symbol} – {interval}",
+        xaxis_rangeslider_visible=False,
+        template="plotly_white",
+        height=900
+    )
 
     png_path = os.path.join(CHARTS_DIR, png_name)
 
     try:
         fig.write_image(png_path, width=1800, height=1100, scale=3)
     except Exception:
-        debug_mark(bot_1h, ADMIN_CHAT, 805, "create_plotly_chart_write")
         png_path = None
 
     return {
@@ -627,7 +663,6 @@ def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars
         "sma100":    df["SMA100"].tolist()     if "SMA100"     in df.columns else [],
         "sma200":    df["SMA200"].tolist()     if "SMA200"     in df.columns else []
     }
-
 # =========================
 # آلارم‌ها
 # =========================
