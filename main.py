@@ -82,18 +82,18 @@ DEFAULT_CONFIG = {
     "chat_id_1d":   None,
     "chat_id_15m":  None,
 
-    "verbose_1h":   True,
-    "verbose_4h":   True,
-    "verbose_1d":   True,
-    "verbose_15m":  True,
+    "verbose_1h":   False,
+    "verbose_4h":   False,
+    "verbose_1d":   False,
+    "verbose_15m":  False,
 
     "cycle_progress_batch": 5,
 
     "lock_timeout_sec":      600,
 
-    "enable_1h":   True,
-    "enable_4h":   True,
-    "enable_1d":   True,
+    "enable_1h":   False,
+    "enable_4h":   False,
+    "enable_1d":   False,
     "enable_15m":  True,
 }
 
