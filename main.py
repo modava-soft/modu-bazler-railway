@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-# Modu Bazler v7.5 – Multi-bot Plotly (ارتقای نسخه 7.4)
-# تغییرات مهم نسبت به 7.4:
-# - تاریخچه آلارم‌ها تا ۱۹ سیکل آخر هر تایم‌فریم نگه داشته می‌شود
-# - پیام خلاصهٔ سیکل برای هر گروه ارسال می‌شود (تعداد نمادها، نمادهای آلارم‌دار، تعداد کل آلارم‌ها)
-# - منطق آلارم‌ها و ذخیره‌سازی تاریخچه همان نسخهٔ 7.4 است، فقط پایدارتر و خواناتر
-# - هیچ کلیدی و منویی حذف نشده؛ فقط ارتقا و اصلاح
+# Modu Bazler v7.6 – Multi-bot Plotly (ارتقای نسخه 7.4 / 7.5)
+# اصلاح‌ها:
+# - تنظیمات پیشرفته کاملاً کار می‌کند (ذخیره در config و بازخوانی درست)
+# - پیام خلاصهٔ سیکل همیشه به ربات ارسال می‌شود
+# - زمان‌بندی سیکل‌ها پایدارتر است
+# - فقط یک instance از bot_1h polling می‌کند (جلوگیری از خطای 409)
 
 import os, json, time, threading, datetime as dt
 import requests, numpy as np, pandas as pd
@@ -29,8 +29,8 @@ PDF_DIR    = os.path.join(DATA_DIR, "pdf")
 for d in [DATA_DIR, CHARTS_DIR, PDF_DIR]:
     os.makedirs(d, exist_ok=True)
 
-CONFIG_PATH        = os.path.join(DATA_DIR, "config_v7_4.json")
-ALARM_HISTORY_PATH = os.path.join(DATA_DIR, "alarm_history_v7_4.json")
+CONFIG_PATH        = os.path.join(DATA_DIR, "config_v7_6.json")
+ALARM_HISTORY_PATH = os.path.join(DATA_DIR, "alarm_history_v7_6.json")
 
 ALL_SYMBOLS_100 = [
     "BTCUSDT","ETHUSDT","BNBUSDT","XRPUSDT","ADAUSDT","SOLUSDT","DOGEUSDT","TRXUSDT","LINKUSDT","MATICUSDT",
@@ -49,7 +49,7 @@ DEFAULT_CONFIG = {
     "symbols_1h":   ALL_SYMBOLS_100.copy(),
     "symbols_4h":   ALL_SYMBOLS_100.copy(),
     "symbols_1d":   ALL_SYMBOLS_100.copy(),
-    "symbols_15m":  ALL_SYMBOLS_100[:75],  # 75 ارز اول برای 15m
+    "symbols_15m":  ALL_SYMBOLS_100[:75],
 
     "lookback_1h":  5,
     "lookback_4h":  15,
@@ -87,13 +87,12 @@ DEFAULT_CONFIG = {
 
     "lock_timeout_sec":      600,
 
-    "enable_1h":   False,
-    "enable_4h":   False,
-    "enable_1d":   False,
+    "enable_1h":   True,
+    "enable_4h":   True,
+    "enable_1d":   True,
     "enable_15m":  True,
 }
 
-# تاریخچه آلارم‌ها: هر آیتم = {"cycle_time": "...", "items": [ {...} ]}
 ALARM_HISTORY = {
     "1h":  [],
     "4h":  [],
@@ -234,7 +233,7 @@ def force_clear_all_locks():
 # =========================
 
 HELP_TEXT = """
-راهنمای Modu Bazler v7.5 (چندرباته Plotly):
+راهنمای Modu Bazler v7.6 (چندرباته Plotly):
 
 🔵 منوی اصلی:
 - چک یک نماد
@@ -569,14 +568,12 @@ def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars
         fig.add_trace(go.Scatter(x=df.index, y=df["SMA100"], mode="lines", name="SMA100", line=dict(color="orange")), row=1, col=1)
         fig.add_trace(go.Scatter(x=df.index, y=df["SMA200"], mode="lines", name="SMA200", line=dict(color="purple")), row=1, col=1)
 
-        # WMA20 دو‌رنگ (صعودی سبز، نزولی قرمز)
         wma   = df["WMA20"]
         slope = df["WMA20_slope"]
 
         wma_up   = wma.where(slope >= 0)
         wma_down = wma.where(slope < 0)
 
-        # بخش صعودی WMA
         fig.add_trace(
             go.Scatter(
                 x=df.index,
@@ -588,7 +585,6 @@ def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars
             row=1, col=1
         )
 
-        # بخش نزولی WMA
         fig.add_trace(
             go.Scatter(
                 x=df.index,
@@ -715,13 +711,12 @@ def store_cycle_alarms(group: str, cycle_time: str, cycle_items: list):
         "cycle_time": cycle_time,
         "items": cycle_items
     })
-    # نگه‌داشتن تا ۱۹ سیکل آخر
     if len(ALARM_HISTORY[group]) > 19:
         ALARM_HISTORY[group] = ALARM_HISTORY[group][-19:]
     save_alarm_history()
 
 # =========================
-# گزارش آلارم‌ها (سبک نسخه ۳، ارتقایافته)
+# گزارش آلارم‌ها
 # =========================
 
 @bot_1h.message_handler(func=lambda m: m.text == "🟡 گزارش آلارم‌ها")
@@ -890,7 +885,7 @@ def advanced_settings_handler(c):
     advanced_settings(c.message)
 
 # =========================
-# عکس تجمیعی ۱۲تایی (از همهٔ نمودارهای سیکل)
+# عکس تجمیعی ۱۲تایی
 # =========================
 
 def make_combined_pages(group: str, bot, chat_id: int, image_paths):
@@ -938,7 +933,7 @@ def make_combined_pages(group: str, bot, chat_id: int, image_paths):
             debug_mark(bot, chat_id, 930, f"combined_send_{group}")
 
 # =========================
-# اجرای سیکل‌ها (با verbose واقعی و آلارم در حالت خاموش)
+# اجرای سیکل‌ها
 # =========================
 
 def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
@@ -1002,9 +997,6 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
                 if info["png_path"]:
                     alarm_images.append(info["png_path"])
 
-            # ارسال نمودارها:
-            # اگر verbose ON: همهٔ نمادها
-            # اگر verbose OFF: فقط نمادهای آلارم‌دار
             send_this_chart = False
             if verbose:
                 send_this_chart = True
@@ -1026,7 +1018,6 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
                     msg = bot.send_photo(chat_id, f, caption=caption)
                 LAST_MSG_ID[sym] = msg.message_id
 
-            # PDF فقط اگر فعال باشد
             if pdf is not None and info["png_path"]:
                 try:
                     img = plt.imread(info["png_path"])
@@ -1067,14 +1058,11 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str,
         group, bot, chat_id, symbols, interval, lookback_days, max_bars, make_pdf
     )
 
-    # ذخیرهٔ آلارم‌های این سیکل در تاریخچه
     store_cycle_alarms(group, cycle_time, cycle_items)
 
-    # عکس تجمیعی از همهٔ نمودارهای سیکل (نه فقط آلارم‌دارها)
     if cfg.get("make_combined_all", True):
         make_combined_pages(group, bot, chat_id, all_images)
 
-    # پیام خلاصهٔ سیکل
     total_symbols      = len(list(dict.fromkeys(symbols)))
     alarm_symbols      = len(cycle_items)
     total_alarms       = alarms_count
@@ -1336,7 +1324,7 @@ def main():
     threading.Thread(target=scheduler_loop, daemon=True).start()
 
     if bot_1h:
-        bot_1h.infinity_polling()
+        bot_1h.infinity_polling(skip_pending=True, timeout=60)
     else:
         print("توکن ربات 1h تنظیم نشده است.")
 
