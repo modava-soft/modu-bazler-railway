@@ -1,14 +1,10 @@
 # -*- coding: utf-8 -*-
-# Modu Bazler v7.4
-# تغییرات مهم:
-# - حالت بدون پیام پردازش (verbose=OFF): هیچ پیام میانی ارسال نمی‌شود،
-#   اما:
-#   1) آلارم‌ها همچنان تشخیص داده می‌شوند
-#   2) نمودار نمادهای آلارم‌دار به ربات ارسال می‌شود
-#   3) آلارم‌ها در تاریخچه ذخیره می‌شوند
-# - گزارش آلارم‌ها بر اساس منطق نسخه ۳ (ساده، قابل‌خواندن، تا ۱۰ سیکل آخر هر تایم‌فریم)
-# - تاریخچه آلارم‌ها در فایل ذخیره می‌شود تا بعد از ری‌استارت هم باقی بماند
-# - قفل‌ها با کلید رفع دستی و timeout
+# Modu Bazler v7.5 – Multi-bot Plotly (ارتقای نسخه 7.4)
+# تغییرات مهم نسبت به 7.4:
+# - تاریخچه آلارم‌ها تا ۱۹ سیکل آخر هر تایم‌فریم نگه داشته می‌شود
+# - پیام خلاصهٔ سیکل برای هر گروه ارسال می‌شود (تعداد نمادها، نمادهای آلارم‌دار، تعداد کل آلارم‌ها)
+# - منطق آلارم‌ها و ذخیره‌سازی تاریخچه همان نسخهٔ 7.4 است، فقط پایدارتر و خواناتر
+# - هیچ کلیدی و منویی حذف نشده؛ فقط ارتقا و اصلاح
 
 import os, json, time, threading, datetime as dt
 import requests, numpy as np, pandas as pd
@@ -238,7 +234,7 @@ def force_clear_all_locks():
 # =========================
 
 HELP_TEXT = """
-راهنمای Modu Bazler v7.4:
+راهنمای Modu Bazler v7.5 (چندرباته Plotly):
 
 🔵 منوی اصلی:
 - چک یک نماد
@@ -251,7 +247,7 @@ HELP_TEXT = """
 
 🟡 آلارم‌ها:
 - تنظیم آلارم‌ها (WMA و SMA)
-- گزارش آلارم‌ها (تاریخچه 10 سیکل آخر هر گروه)
+- گزارش آلارم‌ها (تاریخچه تا ۱۹ سیکل آخر هر گروه)
 
 🔴 تنظیمات و وضعیت:
 - وضعیت سیستم
@@ -268,7 +264,11 @@ HELP_TEXT = """
   • هیچ پیام پردازش میانی ارسال نمی‌شود
   • فقط نمادهای آلارم‌دار همان سیکل به ربات پیام می‌شوند
   • آلارم‌ها در تاریخچه ذخیره می‌شوند و در گزارش آلارم‌ها قابل‌مشاهده‌اند
-- پایان هر سیکل، فقط عدد تعداد آلارم همان سیکل به ربات ارسال می‌شود—even اگر صفر باشد.
+- پایان هر سیکل، پیام خلاصهٔ سیکل شامل:
+  • تعداد نمادها
+  • تعداد نمادهای آلارم‌دار
+  • تعداد کل آلارم‌ها
+  • زمان سیکل
 """
 
 # =========================
@@ -569,36 +569,36 @@ def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars
         fig.add_trace(go.Scatter(x=df.index, y=df["SMA100"], mode="lines", name="SMA100", line=dict(color="orange")), row=1, col=1)
         fig.add_trace(go.Scatter(x=df.index, y=df["SMA200"], mode="lines", name="SMA200", line=dict(color="purple")), row=1, col=1)
 
-       # WMA20 دو‌رنگ (صعودی سبز، نزولی قرمز)
+        # WMA20 دو‌رنگ (صعودی سبز، نزولی قرمز)
         wma   = df["WMA20"]
         slope = df["WMA20_slope"]
 
         wma_up   = wma.where(slope >= 0)
         wma_down = wma.where(slope < 0)
 
-# بخش صعودی WMA
+        # بخش صعودی WMA
         fig.add_trace(
-          go.Scatter(
-        x=df.index,
-        y=wma_up,
-        mode="lines",
-        name="WMA20 Up",
-        line=dict(color="green", width=2)
-    ),
-    row=1, col=1
-)
+            go.Scatter(
+                x=df.index,
+                y=wma_up,
+                mode="lines",
+                name="WMA20 Up",
+                line=dict(color="green", width=2)
+            ),
+            row=1, col=1
+        )
 
-# بخش نزولی WMA
+        # بخش نزولی WMA
         fig.add_trace(
-    go.Scatter(
-        x=df.index,
-        y=wma_down,
-        mode="lines",
-        name="WMA20 Down",
-        line=dict(color="red", width=2)
-    ),
-    row=1, col=1
-)
+            go.Scatter(
+                x=df.index,
+                y=wma_down,
+                mode="lines",
+                name="WMA20 Down",
+                line=dict(color="red", width=2)
+            ),
+            row=1, col=1
+        )
 
         fig.add_trace(go.Scatter(x=df.index, y=df["RSI14"], mode="lines", name="RSI14", line=dict(color="brown")), row=2, col=1)
         fig.add_hline(y=70, line=dict(color="red", dash="dash"), row=2, col=1)
@@ -715,18 +715,19 @@ def store_cycle_alarms(group: str, cycle_time: str, cycle_items: list):
         "cycle_time": cycle_time,
         "items": cycle_items
     })
-    if len(ALARM_HISTORY[group]) > 10:
-        ALARM_HISTORY[group] = ALARM_HISTORY[group][-10:]
+    # نگه‌داشتن تا ۱۹ سیکل آخر
+    if len(ALARM_HISTORY[group]) > 19:
+        ALARM_HISTORY[group] = ALARM_HISTORY[group][-19:]
     save_alarm_history()
 
 # =========================
-# گزارش آلارم‌ها (سبک نسخه ۳، اصلاح‌شده)
+# گزارش آلارم‌ها (سبک نسخه ۳، ارتقایافته)
 # =========================
 
 @bot_1h.message_handler(func=lambda m: m.text == "🟡 گزارش آلارم‌ها")
 def alarms_report(m):
     load_alarm_history()
-    txt = "گزارش آلارم‌ها (تا ۱۰ سیکل آخر هر تایم‌فریم):\n\n"
+    txt = "گزارش آلارم‌ها (تا ۱۹ سیکل آخر هر تایم‌فریم):\n\n"
 
     for group in ["15m", "1h", "4h", "1d"]:
         history = ALARM_HISTORY.get(group, [])
@@ -1066,13 +1067,27 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str,
         group, bot, chat_id, symbols, interval, lookback_days, max_bars, make_pdf
     )
 
+    # ذخیرهٔ آلارم‌های این سیکل در تاریخچه
     store_cycle_alarms(group, cycle_time, cycle_items)
 
     # عکس تجمیعی از همهٔ نمودارهای سیکل (نه فقط آلارم‌دارها)
     if cfg.get("make_combined_all", True):
         make_combined_pages(group, bot, chat_id, all_images)
 
-    bot.send_message(chat_id, f"تعداد آلارم‌های این سیکل {group}: {alarms_count}")
+    # پیام خلاصهٔ سیکل
+    total_symbols      = len(list(dict.fromkeys(symbols)))
+    alarm_symbols      = len(cycle_items)
+    total_alarms       = alarms_count
+
+    summary = (
+        f"📊 خلاصهٔ سیکل {group}\n"
+        f"🕒 زمان سیکل: {cycle_time}\n"
+        f"🔢 تعداد نمادها: {total_symbols}\n"
+        f"🔔 نمادهای آلارم‌دار: {alarm_symbols}\n"
+        f"📣 تعداد کل آلارم‌ها: {total_alarms}"
+    )
+
+    bot.send_message(chat_id, summary)
 
 # =========================
 # اجرای دستی
