@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
-# Modu Bazler v7.6 – Multi-bot Plotly (ارتقای نسخه 7.4 / 7.5)
+# Modu Bazler v7.7 – Multi-bot Plotly (ارتقای نسخه 7.4 / 7.6)
 # اصلاح‌ها:
-# - تنظیمات پیشرفته کاملاً کار می‌کند (ذخیره در config و بازخوانی درست)
+# - زمان‌بندی همهٔ سیکل‌ها با آفست +۳ ساعت و ۳۰ دقیقه (محاسبه روی زمان UTC)
+# - تنظیمات پیشرفته به‌صورت کلیدهای ReplyKeyboard مثل مدیریت نمادها (بدون callback)
+# - همهٔ گزینه‌های تنظیمات پیشرفته واقعاً روی config ذخیره و اعمال می‌شوند
 # - پیام خلاصهٔ سیکل همیشه به ربات ارسال می‌شود
-# - زمان‌بندی سیکل‌ها پایدارتر است
-# - فقط یک instance از bot_1h polling می‌کند (جلوگیری از خطای 409)
+# - عکس تجمیعی ۱۲تایی بررسی و پایدار شده است
+# - فقط bot_1h polling می‌کند (جلوگیری از خطای 409)
 
 import os, json, time, threading, datetime as dt
 import requests, numpy as np, pandas as pd
@@ -29,8 +31,8 @@ PDF_DIR    = os.path.join(DATA_DIR, "pdf")
 for d in [DATA_DIR, CHARTS_DIR, PDF_DIR]:
     os.makedirs(d, exist_ok=True)
 
-CONFIG_PATH        = os.path.join(DATA_DIR, "config_v7_6.json")
-ALARM_HISTORY_PATH = os.path.join(DATA_DIR, "alarm_history_v7_6.json")
+CONFIG_PATH        = os.path.join(DATA_DIR, "config_v7_7.json")
+ALARM_HISTORY_PATH = os.path.join(DATA_DIR, "alarm_history_v7_7.json")
 
 ALL_SYMBOLS_100 = [
     "BTCUSDT","ETHUSDT","BNBUSDT","XRPUSDT","ADAUSDT","SOLUSDT","DOGEUSDT","TRXUSDT","LINKUSDT","MATICUSDT",
@@ -233,7 +235,7 @@ def force_clear_all_locks():
 # =========================
 
 HELP_TEXT = """
-راهنمای Modu Bazler v7.6 (چندرباته Plotly):
+راهنمای Modu Bazler v7.7 (چندرباته Plotly):
 
 🔵 منوی اصلی:
 - چک یک نماد
@@ -250,7 +252,7 @@ HELP_TEXT = """
 
 🔴 تنظیمات و وضعیت:
 - وضعیت سیستم
-- تنظیمات پیشرفته
+- تنظیمات پیشرفته (کلیدهای تلگرام)
 - ریست برنامه
 - رفع خطای قفل‌ها
 
@@ -406,36 +408,65 @@ def show_symbols_any(m):
 @bot_1h.message_handler(func=lambda m: m.text == "🟡 تنظیم آلارم‌ها")
 def alarm_settings(m):
     cfg = load_config()
-    kb = types.InlineKeyboardMarkup()
-    kb.add(types.InlineKeyboardButton(f"WMA جهت ({'ON' if cfg['alarm_wma_direction'] else 'OFF'})", callback_data="al_wma_dir"))
-    kb.add(types.InlineKeyboardButton(f"Cross SMA20 ({'ON' if cfg['alarm_cross_sma20'] else 'OFF'})", callback_data="al_cross_20"))
-    kb.add(types.InlineKeyboardButton(f"Cross SMA100 ({'ON' if cfg['alarm_cross_sma100'] else 'OFF'})", callback_data="al_cross_100"))
-    kb.add(types.InlineKeyboardButton(f"Cross SMA200 ({'ON' if cfg['alarm_cross_sma200'] else 'OFF'})", callback_data="al_cross_200"))
-    kb.add(types.InlineKeyboardButton(f"جهت SMA20 ({'ON' if cfg['alarm_sma20_direction'] else 'OFF'})", callback_data="al_dir_20"))
-    kb.add(types.InlineKeyboardButton(f"جهت SMA100 ({'ON' if cfg['alarm_sma100_direction'] else 'OFF'})", callback_data="al_dir_100"))
-    kb.add(types.InlineKeyboardButton(f"جهت SMA200 ({'ON' if cfg['alarm_sma200_direction'] else 'OFF'})", callback_data="al_dir_200"))
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    kb.row(f"WMA جهت ({'ON' if cfg['alarm_wma_direction'] else 'OFF'})")
+    kb.row(f"Cross SMA20 ({'ON' if cfg['alarm_cross_sma20'] else 'OFF'})")
+    kb.row(f"Cross SMA100 ({'ON' if cfg['alarm_cross_sma100'] else 'OFF'})")
+    kb.row(f"Cross SMA200 ({'ON' if cfg['alarm_cross_sma200'] else 'OFF'})")
+    kb.row(f"جهت SMA20 ({'ON' if cfg['alarm_sma20_direction'] else 'OFF'})")
+    kb.row(f"جهت SMA100 ({'ON' if cfg['alarm_sma100_direction'] else 'OFF'})")
+    kb.row(f"جهت SMA200 ({'ON' if cfg['alarm_sma200_direction'] else 'OFF'})")
+    kb.row("بازگشت به منوی اصلی")
     bot_1h.send_message(m.chat.id, "تنظیم آلارم‌ها:", reply_markup=kb)
 
-@bot_1h.callback_query_handler(func=lambda c: c.data.startswith("al_"))
-def alarm_settings_handler(c):
+@bot_1h.message_handler(func=lambda m: m.text.startswith("WMA جهت"))
+def toggle_wma_dir(m):
     cfg = load_config()
-    if c.data == "al_wma_dir":
-        cfg["alarm_wma_direction"] = not cfg["alarm_wma_direction"]
-    elif c.data == "al_cross_20":
-        cfg["alarm_cross_sma20"] = not cfg["alarm_cross_sma20"]
-    elif c.data == "al_cross_100":
-        cfg["alarm_cross_sma100"] = not cfg["alarm_cross_sma100"]
-    elif c.data == "al_cross_200":
-        cfg["alarm_cross_sma200"] = not cfg["alarm_cross_sma200"]
-    elif c.data == "al_dir_20":
-        cfg["alarm_sma20_direction"] = not cfg["alarm_sma20_direction"]
-    elif c.data == "al_dir_100":
-        cfg["alarm_sma100_direction"] = not cfg["alarm_sma100_direction"]
-    elif c.data == "al_dir_200":
-        cfg["alarm_sma200_direction"] = not cfg["alarm_sma200_direction"]
+    cfg["alarm_wma_direction"] = not cfg["alarm_wma_direction"]
     save_config(cfg)
-    bot_1h.answer_callback_query(c.id, "آلارم‌ها به‌روزرسانی شد.")
-    alarm_settings(c.message)
+    alarm_settings(m)
+
+@bot_1h.message_handler(func=lambda m: m.text.startswith("Cross SMA20"))
+def toggle_cross_20(m):
+    cfg = load_config()
+    cfg["alarm_cross_sma20"] = not cfg["alarm_cross_sma20"]
+    save_config(cfg)
+    alarm_settings(m)
+
+@bot_1h.message_handler(func=lambda m: m.text.startswith("Cross SMA100"))
+def toggle_cross_100(m):
+    cfg = load_config()
+    cfg["alarm_cross_sma100"] = not cfg["alarm_cross_sma100"]
+    save_config(cfg)
+    alarm_settings(m)
+
+@bot_1h.message_handler(func=lambda m: m.text.startswith("Cross SMA200"))
+def toggle_cross_200(m):
+    cfg = load_config()
+    cfg["alarm_cross_sma200"] = not cfg["alarm_cross_sma200"]
+    save_config(cfg)
+    alarm_settings(m)
+
+@bot_1h.message_handler(func=lambda m: m.text.startswith("جهت SMA20"))
+def toggle_dir_20(m):
+    cfg = load_config()
+    cfg["alarm_sma20_direction"] = not cfg["alarm_sma20_direction"]
+    save_config(cfg)
+    alarm_settings(m)
+
+@bot_1h.message_handler(func=lambda m: m.text.startswith("جهت SMA100"))
+def toggle_dir_100(m):
+    cfg = load_config()
+    cfg["alarm_sma100_direction"] = not cfg["alarm_sma100_direction"]
+    save_config(cfg)
+    alarm_settings(m)
+
+@bot_1h.message_handler(func=lambda m: m.text.startswith("جهت SMA200"))
+def toggle_dir_200(m):
+    cfg = load_config()
+    cfg["alarm_sma200_direction"] = not cfg["alarm_sma200_direction"]
+    save_config(cfg)
+    alarm_settings(m)
 
 # =========================
 # دریافت دیتا
@@ -815,74 +846,152 @@ def system_status(m):
     bot_1h.send_message(m.chat.id, txt)
 
 # =========================
-# تنظیمات پیشرفته
+# تنظیمات پیشرفته (ReplyKeyboard)
 # =========================
+
+def send_advanced_menu(chat_id):
+    cfg = load_config()
+    txt = "تنظیمات پیشرفته:\n"
+    txt += f"PDF 1h: {'ON' if cfg['make_pdf_1h'] else 'OFF'}\n"
+    txt += f"PDF 1d: {'ON' if cfg['make_pdf_1d'] else 'OFF'}\n"
+    txt += f"Combined 15m: {'ON' if cfg.get('make_combined_15m', True) else 'OFF'}\n"
+    txt += f"Combined all: {'ON' if cfg.get('make_combined_all', True) else 'OFF'}\n"
+    txt += f"bars_per_chart: {cfg.get('bars_per_chart', 90)}\n"
+    txt += f"verbose 1h: {'ON' if cfg['verbose_1h'] else 'OFF'}\n"
+    txt += f"verbose 4h: {'ON' if cfg['verbose_4h'] else 'OFF'}\n"
+    txt += f"verbose 1d: {'ON' if cfg['verbose_1d'] else 'OFF'}\n"
+    txt += f"verbose 15m: {'ON' if cfg['verbose_15m'] else 'OFF'}\n"
+    txt += f"enable 1h: {'ON' if cfg.get('enable_1h', True) else 'OFF'}\n"
+    txt += f"enable 4h: {'ON' if cfg.get('enable_4h', True) else 'OFF'}\n"
+    txt += f"enable 1d: {'ON' if cfg.get('enable_1d', True) else 'OFF'}\n"
+    txt += f"enable 15m: {'ON' if cfg.get('enable_15m', True) else 'OFF'}\n"
+
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    kb.row("PDF 1h", "PDF 1d")
+    kb.row("Combined 15m", "Combined all")
+    kb.row("کندل +30", "کندل -30")
+    kb.row("verbose 1h", "verbose 4h")
+    kb.row("verbose 1d", "verbose 15m")
+    kb.row("enable 1h", "enable 4h")
+    kb.row("enable 1d", "enable 15m")
+    kb.row("ریست کامل برنامه", "بازگشت به منوی اصلی")
+    bot_1h.send_message(chat_id, txt, reply_markup=kb)
 
 @bot_1h.message_handler(func=lambda m: m.text == "🔴 تنظیمات پیشرفته")
 def advanced_settings(m):
-    cfg = load_config()
-    kb = types.InlineKeyboardMarkup()
-    kb.add(types.InlineKeyboardButton(f"PDF 1h ({'ON' if cfg['make_pdf_1h'] else 'OFF'})", callback_data="adv_pdf_1h"))
-    kb.add(types.InlineKeyboardButton(f"PDF 1d ({'ON' if cfg['make_pdf_1d'] else 'OFF'})", callback_data="adv_pdf_1d"))
-    kb.add(types.InlineKeyboardButton(f"Combined 15m ({'ON' if cfg.get('make_combined_15m', True) else 'OFF'})", callback_data="adv_combined_15m"))
-    kb.add(types.InlineKeyboardButton(f"Combined all ({'ON' if cfg.get('make_combined_all', True) else 'OFF'})", callback_data="adv_combined_all"))
-    kb.add(types.InlineKeyboardButton(f"کندل +30 (فعلی {cfg.get('bars_per_chart',90)})", callback_data="adv_bars_plus"))
-    kb.add(types.InlineKeyboardButton("کندل -30", callback_data="adv_bars_minus"))
-    kb.add(types.InlineKeyboardButton(f"verbose 1h ({'ON' if cfg['verbose_1h'] else 'OFF'})", callback_data="adv_verbose_1h"))
-    kb.add(types.InlineKeyboardButton(f"verbose 4h ({'ON' if cfg['verbose_4h'] else 'OFF'})", callback_data="adv_verbose_4h"))
-    kb.add(types.InlineKeyboardButton(f"verbose 1d ({'ON' if cfg['verbose_1d'] else 'OFF'})", callback_data="adv_verbose_1d"))
-    kb.add(types.InlineKeyboardButton(f"verbose 15m ({'ON' if cfg['verbose_15m'] else 'OFF'})", callback_data="adv_verbose_15m"))
-    kb.add(types.InlineKeyboardButton(f"enable 1h ({'ON' if cfg.get('enable_1h', True) else 'OFF'})", callback_data="adv_enable_1h"))
-    kb.add(types.InlineKeyboardButton(f"enable 4h ({'ON' if cfg.get('enable_4h', True) else 'OFF'})", callback_data="adv_enable_4h"))
-    kb.add(types.InlineKeyboardButton(f"enable 1d ({'ON' if cfg.get('enable_1d', True) else 'OFF'})", callback_data="adv_enable_1d"))
-    kb.add(types.InlineKeyboardButton(f"enable 15m ({'ON' if cfg.get('enable_15m', True) else 'OFF'})", callback_data="adv_enable_15m"))
-    kb.add(types.InlineKeyboardButton("ریست کامل برنامه", callback_data="adv_reset_app"))
-    bot_1h.send_message(m.chat.id, "تنظیمات پیشرفته:", reply_markup=kb)
+    send_advanced_menu(m.chat.id)
 
-@bot_1h.callback_query_handler(func=lambda c: c.data.startswith("adv_"))
-def advanced_settings_handler(c):
+@bot_1h.message_handler(func=lambda m: m.text == "PDF 1h")
+def adv_pdf_1h(m):
     cfg = load_config()
-    if c.data == "adv_pdf_1h":
-        cfg["make_pdf_1h"] = not cfg["make_pdf_1h"]
-    elif c.data == "adv_pdf_1d":
-        cfg["make_pdf_1d"] = not cfg["make_pdf_1d"]
-    elif c.data == "adv_combined_15m":
-        cfg["make_combined_15m"] = not cfg.get("make_combined_15m", True)
-    elif c.data == "adv_combined_all":
-        cfg["make_combined_all"] = not cfg.get("make_combined_all", True)
-    elif c.data == "adv_bars_plus":
-        bars = cfg.get("bars_per_chart", 90) + 30
-        if bars > cfg.get("max_bars", 300):
-            bars = cfg.get("max_bars", 300)
-        cfg["bars_per_chart"] = max(30, bars)
-    elif c.data == "adv_bars_minus":
-        bars = cfg.get("bars_per_chart", 90) - 30
-        cfg["bars_per_chart"] = max(30, bars)
-    elif c.data == "adv_verbose_1h":
-        cfg["verbose_1h"] = not cfg["verbose_1h"]
-    elif c.data == "adv_verbose_4h":
-        cfg["verbose_4h"] = not cfg["verbose_4h"]
-    elif c.data == "adv_verbose_1d":
-        cfg["verbose_1d"] = not cfg["verbose_1d"]
-    elif c.data == "adv_verbose_15m":
-        cfg["verbose_15m"] = not cfg["verbose_15m"]
-    elif c.data == "adv_enable_1h":
-        cfg["enable_1h"] = not cfg.get("enable_1h", True)
-    elif c.data == "adv_enable_4h":
-        cfg["enable_4h"] = not cfg.get("enable_4h", True)
-    elif c.data == "adv_enable_1d":
-        cfg["enable_1d"] = not cfg.get("enable_1d", True)
-    elif c.data == "adv_enable_15m":
-        cfg["enable_15m"] = not cfg.get("enable_15m", True)
-    elif c.data == "adv_reset_app":
-        cfg = reset_config()
-        for g in ["1h","4h","1d","15m"]:
-            ALARM_HISTORY[g] = []
-        save_alarm_history()
-
+    cfg["make_pdf_1h"] = not cfg["make_pdf_1h"]
     save_config(cfg)
-    bot_1h.answer_callback_query(c.id, "تنظیمات اعمال شد.")
-    advanced_settings(c.message)
+    send_advanced_menu(m.chat.id)
+
+@bot_1h.message_handler(func=lambda m: m.text == "PDF 1d")
+def adv_pdf_1d(m):
+    cfg = load_config()
+    cfg["make_pdf_1d"] = not cfg["make_pdf_1d"]
+    save_config(cfg)
+    send_advanced_menu(m.chat.id)
+
+@bot_1h.message_handler(func=lambda m: m.text == "Combined 15m")
+def adv_combined_15m(m):
+    cfg = load_config()
+    cfg["make_combined_15m"] = not cfg.get("make_combined_15m", True)
+    save_config(cfg)
+    send_advanced_menu(m.chat.id)
+
+@bot_1h.message_handler(func=lambda m: m.text == "Combined all")
+def adv_combined_all(m):
+    cfg = load_config()
+    cfg["make_combined_all"] = not cfg.get("make_combined_all", True)
+    save_config(cfg)
+    send_advanced_menu(m.chat.id)
+
+@bot_1h.message_handler(func=lambda m: m.text == "کندل +30")
+def adv_bars_plus(m):
+    cfg = load_config()
+    bars = cfg.get("bars_per_chart", 90) + 30
+    if bars > cfg.get("max_bars", 300):
+        bars = cfg.get("max_bars", 300)
+    cfg["bars_per_chart"] = max(30, bars)
+    save_config(cfg)
+    send_advanced_menu(m.chat.id)
+
+@bot_1h.message_handler(func=lambda m: m.text == "کندل -30")
+def adv_bars_minus(m):
+    cfg = load_config()
+    bars = cfg.get("bars_per_chart", 90) - 30
+    cfg["bars_per_chart"] = max(30, bars)
+    save_config(cfg)
+    send_advanced_menu(m.chat.id)
+
+@bot_1h.message_handler(func=lambda m: m.text == "verbose 1h")
+def adv_verbose_1h(m):
+    cfg = load_config()
+    cfg["verbose_1h"] = not cfg["verbose_1h"]
+    save_config(cfg)
+    send_advanced_menu(m.chat.id)
+
+@bot_1h.message_handler(func=lambda m: m.text == "verbose 4h")
+def adv_verbose_4h(m):
+    cfg = load_config()
+    cfg["verbose_4h"] = not cfg["verbose_4h"]
+    save_config(cfg)
+    send_advanced_menu(m.chat.id)
+
+@bot_1h.message_handler(func=lambda m: m.text == "verbose 1d")
+def adv_verbose_1d(m):
+    cfg = load_config()
+    cfg["verbose_1d"] = not cfg["verbose_1d"]
+    save_config(cfg)
+    send_advanced_menu(m.chat.id)
+
+@bot_1h.message_handler(func=lambda m: m.text == "verbose 15m")
+def adv_verbose_15m(m):
+    cfg = load_config()
+    cfg["verbose_15m"] = not cfg["verbose_15m"]
+    save_config(cfg)
+    send_advanced_menu(m.chat.id)
+
+@bot_1h.message_handler(func=lambda m: m.text == "enable 1h")
+def adv_enable_1h(m):
+    cfg = load_config()
+    cfg["enable_1h"] = not cfg.get("enable_1h", True)
+    save_config(cfg)
+    send_advanced_menu(m.chat.id)
+
+@bot_1h.message_handler(func=lambda m: m.text == "enable 4h")
+def adv_enable_4h(m):
+    cfg = load_config()
+    cfg["enable_4h"] = not cfg.get("enable_4h", True)
+    save_config(cfg)
+    send_advanced_menu(m.chat.id)
+
+@bot_1h.message_handler(func=lambda m: m.text == "enable 1d")
+def adv_enable_1d(m):
+    cfg = load_config()
+    cfg["enable_1d"] = not cfg.get("enable_1d", True)
+    save_config(cfg)
+    send_advanced_menu(m.chat.id)
+
+@bot_1h.message_handler(func=lambda m: m.text == "enable 15m")
+def adv_enable_15m(m):
+    cfg = load_config()
+    cfg["enable_15m"] = not cfg.get("enable_15m", True)
+    save_config(cfg)
+    send_advanced_menu(m.chat.id)
+
+@bot_1h.message_handler(func=lambda m: m.text == "ریست کامل برنامه")
+def adv_reset_app(m):
+    cfg = reset_config()
+    for g in ["1h","4h","1d","15m"]:
+        ALARM_HISTORY[g] = []
+    save_alarm_history()
+    save_config(cfg)
+    bot_1h.send_message(m.chat.id, "ریست کامل انجام شد.")
+    send_advanced_menu(m.chat.id)
 
 # =========================
 # عکس تجمیعی ۱۲تایی
@@ -1232,18 +1341,20 @@ def run_all_cycles(m):
         ).start()
 
 # =========================
-# زمان‌بندی خودکار
+# زمان‌بندی خودکار (با آفست +۳:۳۰)
 # =========================
 
 def scheduler_loop():
     while True:
         try:
             now    = now_utc()
-            minute = now.minute
-            hour   = now.hour
+            local  = now + dt.timedelta(hours=3, minutes=30)  # آفست ۳ ساعت و ۳۰ دقیقه
+            minute = local.minute
+            hour   = local.hour
 
             cfg = load_config()
 
+            # 1h – هر ساعت در دقیقه 22 (با آفست روی زمان محلی)
             if minute == 22 and cfg.get("enable_1h", True) and cfg.get("chat_id_1h"):
                 threading.Thread(
                     target=lambda: run_cycle(
@@ -1259,6 +1370,7 @@ def scheduler_loop():
                     daemon=True
                 ).start()
 
+            # 4h – ساعت‌های مشخص، دقیقه 7
             if minute == 7 and hour in [2,6,10,14,18,22] and cfg.get("enable_4h", True):
                 ch = cfg.get("chat_id_4h") or cfg.get("chat_id_1h")
                 if ch:
@@ -1276,6 +1388,7 @@ def scheduler_loop():
                         daemon=True
                     ).start()
 
+            # 1d – ساعت 1:05
             if hour == 1 and minute == 5 and cfg.get("enable_1d", True):
                 ch = cfg.get("chat_id_1d") or cfg.get("chat_id_1h")
                 if ch:
@@ -1293,6 +1406,7 @@ def scheduler_loop():
                         daemon=True
                     ).start()
 
+            # 15m – هر ۱۵ دقیقه
             if minute % 15 == 0 and cfg.get("enable_15m", True):
                 ch = cfg.get("chat_id_15m") or cfg.get("chat_id_1h")
                 if ch:
