@@ -1,12 +1,10 @@
 # -*- coding: utf-8 -*-
-# Modu Bazler v7.7 – Multi-bot Plotly (ارتقای نسخه 7.4 / 7.6)
+# Modu Bazler v7.8 – Multi-bot Plotly (ارتقای نسخه 7.7)
 # اصلاح‌ها:
-# - زمان‌بندی همهٔ سیکل‌ها با آفست +۳ ساعت و ۳۰ دقیقه (محاسبه روی زمان UTC)
-# - تنظیمات پیشرفته به‌صورت کلیدهای ReplyKeyboard مثل مدیریت نمادها (بدون callback)
-# - همهٔ گزینه‌های تنظیمات پیشرفته واقعاً روی config ذخیره و اعمال می‌شوند
-# - پیام خلاصهٔ سیکل همیشه به ربات ارسال می‌شود
-# - عکس تجمیعی ۱۲تایی بررسی و پایدار شده است
-# - فقط bot_1h polling می‌کند (جلوگیری از خطای 409)
+# 1) پیام خلاصهٔ هر سیکل حتماً ارسال می‌شود (با لاگ خطا در صورت مشکل)
+# 2) اضافه شدن «وضعیت چرخه‌ها» برای دیدن وضعیت قفل‌ها و اجرای فعلی
+# 3) خروجی PDF و عکس‌ها پایدارتر شده؛ اگر مشکلی باشد، پیام هشدار به ربات می‌رود
+# 4) فقط bot_1h polling می‌کند تا خطای 409 نداشته باشیم
 
 import os, json, time, threading, datetime as dt
 import requests, numpy as np, pandas as pd
@@ -31,8 +29,8 @@ PDF_DIR    = os.path.join(DATA_DIR, "pdf")
 for d in [DATA_DIR, CHARTS_DIR, PDF_DIR]:
     os.makedirs(d, exist_ok=True)
 
-CONFIG_PATH        = os.path.join(DATA_DIR, "config_v7_7.json")
-ALARM_HISTORY_PATH = os.path.join(DATA_DIR, "alarm_history_v7_7.json")
+CONFIG_PATH        = os.path.join(DATA_DIR, "config_v7_8.json")
+ALARM_HISTORY_PATH = os.path.join(DATA_DIR, "alarm_history_v7_8.json")
 
 ALL_SYMBOLS_100 = [
     "BTCUSDT","ETHUSDT","BNBUSDT","XRPUSDT","ADAUSDT","SOLUSDT","DOGEUSDT","TRXUSDT","LINKUSDT","MATICUSDT",
@@ -179,7 +177,7 @@ bot_1d  = create_bot(TOKEN_1D)
 bot_15m = create_bot(TOKEN_15M)
 
 # =========================
-# SmartLock
+# SmartLock + وضعیت چرخه‌ها
 # =========================
 
 class SmartLock:
@@ -230,12 +228,23 @@ def force_clear_all_locks():
     for g, lk in CYCLE_LOCKS.items():
         lk.force_release()
 
+# وضعیت چرخه‌ها (برای مشکل شماره ۲)
+@bot_1h.message_handler(func=lambda m: m.text == "🔴 وضعیت چرخه‌ها")
+def cycles_status(m):
+    txt = "وضعیت چرخه‌ها:\n"
+    for g in ["1h","4h","1d","15m"]:
+        lk = CYCLE_LOCKS[g]
+        locked = lk.lock.locked()
+        last   = lk.last_acquire.strftime("%Y-%m-%d %H:%M:%S") if lk.last_acquire else "None"
+        txt += f"- {g}: locked={locked}, last_acquire={last}\n"
+    bot_1h.send_message(m.chat.id, txt)
+
 # =========================
 # راهنما
 # =========================
 
 HELP_TEXT = """
-راهنمای Modu Bazler v7.7 (چندرباته Plotly):
+راهنمای Modu Bazler v7.8 (چندرباته Plotly):
 
 🔵 منوی اصلی:
 - چک یک نماد
@@ -252,6 +261,7 @@ HELP_TEXT = """
 
 🔴 تنظیمات و وضعیت:
 - وضعیت سیستم
+- وضعیت چرخه‌ها
 - تنظیمات پیشرفته (کلیدهای تلگرام)
 - ریست برنامه
 - رفع خطای قفل‌ها
@@ -260,16 +270,7 @@ HELP_TEXT = """
 - راهنما
 - رفرش منو
 
-نکتهٔ مهم:
-- اگر verbose هر گروه OFF باشد:
-  • هیچ پیام پردازش میانی ارسال نمی‌شود
-  • فقط نمادهای آلارم‌دار همان سیکل به ربات پیام می‌شوند
-  • آلارم‌ها در تاریخچه ذخیره می‌شوند و در گزارش آلارم‌ها قابل‌مشاهده‌اند
-- پایان هر سیکل، پیام خلاصهٔ سیکل شامل:
-  • تعداد نمادها
-  • تعداد نمادهای آلارم‌دار
-  • تعداد کل آلارم‌ها
-  • زمان سیکل
+پایان هر سیکل، پیام خلاصهٔ سیکل حتماً به ربات ارسال می‌شود.
 """
 
 # =========================
@@ -284,9 +285,9 @@ def send_main_menu(chat_id):
     kb.row("🟢 مدیریت نمادهای 1h", "🟢 مدیریت نمادهای 4h")
     kb.row("🟢 مدیریت نمادهای 1d", "🟢 مدیریت نمادهای 15m")
     kb.row("🟡 تنظیم آلارم‌ها", "🟡 گزارش آلارم‌ها")
-    kb.row("🔴 وضعیت سیستم", "🔴 تنظیمات پیشرفته")
-    kb.row("🔵 اجرای چرخه‌ها", "🔴 ریست برنامه")
-    kb.row("🔴 رفع خطای قفل‌ها")
+    kb.row("🔴 وضعیت سیستم", "🔴 وضعیت چرخه‌ها")
+    kb.row("🔴 تنظیمات پیشرفته", "🔵 اجرای چرخه‌ها")
+    kb.row("🔴 ریست برنامه", "🔴 رفع خطای قفل‌ها")
     kb.row("🟣 راهنما", "🟣 رفرش منو")
     bot_1h.send_message(chat_id, "منوی اصلی:", reply_markup=kb)
 
@@ -658,9 +659,10 @@ def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars
     png_path = os.path.join(CHARTS_DIR, png_name)
 
     try:
+        # نیاز به kaleido دارد؛ اگر نصب نباشد، خطا لاگ می‌شود
         fig.write_image(png_path, width=1800, height=1100, scale=3)
-    except Exception:
-        debug_mark(bot_1h, ADMIN_CHAT, 805, "create_plotly_chart_write")
+    except Exception as e:
+        debug_mark(bot_1h, ADMIN_CHAT, 805, f"create_plotly_chart_write_{e}")
         png_path = None
 
     return {
@@ -811,9 +813,13 @@ def do_check_one_symbol(m):
         caption += f"\n🔗 نمودار قبلی: https://t.me/c/{m.chat.id}/{LAST_MSG_ID[sym]}"
 
     if info["png_path"]:
-        with open(info["png_path"], "rb") as f:
-            msg = bot_1h.send_photo(m.chat.id, f, caption=caption)
-        LAST_MSG_ID[sym] = msg.message_id
+        try:
+            with open(info["png_path"], "rb") as f:
+                msg = bot_1h.send_photo(m.chat.id, f, caption=caption)
+            LAST_MSG_ID[sym] = msg.message_id
+        except Exception as e:
+            debug_mark(bot_1h, ADMIN_CHAT, 810, f"check_one_symbol_send_{e}")
+            bot_1h.send_message(m.chat.id, caption + "\n⚠️ خطا در ارسال عکس.")
     else:
         bot_1h.send_message(m.chat.id, caption + "\n⚠️ عکس ساخته نشد.")
 
@@ -1024,8 +1030,9 @@ def make_combined_pages(group: str, bot, chat_id: int, image_paths):
                 img = plt.imread(img_path)
                 ax.imshow(img)
                 ax.axis("off")
-            except:
+            except Exception as e:
                 ax.text(0.5, 0.5, "خطا در عکس", ha="center")
+                debug_mark(bot, chat_id, 930, f"combined_read_{group}_{e}")
 
         for ax in axes[len(pg):]:
             ax.axis("off")
@@ -1038,8 +1045,8 @@ def make_combined_pages(group: str, bot, chat_id: int, image_paths):
         try:
             with open(out_path, "rb") as f:
                 bot.send_photo(chat_id, f, caption=f"📄 صفحه {idx} – عکس تجمیعی {group}")
-        except:
-            debug_mark(bot, chat_id, 930, f"combined_send_{group}")
+        except Exception as e:
+            debug_mark(bot, chat_id, 931, f"combined_send_{group}_{e}")
 
 # =========================
 # اجرای سیکل‌ها
@@ -1070,9 +1077,10 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
         pdf_filename = os.path.join(PDF_DIR, f"{group}_{now_utc().strftime('%Y%m%d_%H%M%S')}.pdf")
         try:
             pdf = PdfPages(pdf_filename)
-        except:
-            debug_mark(bot, chat_id, 905, f"run_cycle_pdf_init_{group}")
+        except Exception as e:
+            debug_mark(bot, chat_id, 905, f"run_cycle_pdf_init_{group}_{e}")
             pdf = None
+            bot.send_message(chat_id, f"⚠️ PDF {group} ساخته نشد.")
 
     all_images   = []
     alarm_images = []
@@ -1123,9 +1131,12 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
                 if sym in LAST_MSG_ID:
                     caption += f"\n🔗 نمودار قبلی: https://t.me/c/{chat_id}/{LAST_MSG_ID[sym]}"
 
-                with open(info["png_path"], "rb") as f:
-                    msg = bot.send_photo(chat_id, f, caption=caption)
-                LAST_MSG_ID[sym] = msg.message_id
+                try:
+                    with open(info["png_path"], "rb") as f:
+                        msg = bot.send_photo(chat_id, f, caption=caption)
+                    LAST_MSG_ID[sym] = msg.message_id
+                except Exception as e:
+                    debug_mark(bot, chat_id, 906, f"cycle_send_chart_{group}_{e}")
 
             if pdf is not None and info["png_path"]:
                 try:
@@ -1135,18 +1146,19 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
                     ax_pdf.axis("off")
                     pdf.savefig(fig_pdf)
                     plt.close(fig_pdf)
-                except:
-                    debug_mark(bot, chat_id, 906, f"pdf_add_{group}")
+                except Exception as e:
+                    debug_mark(bot, chat_id, 907, f"pdf_add_{group}_{e}")
 
             time.sleep(0.3)
 
         if pdf is not None:
-            pdf.close()
             try:
+                pdf.close()
                 with open(pdf_filename, "rb") as f:
                     bot.send_document(chat_id, f, caption=f"گزارش PDF کامل سیکل {group}")
-            except:
-                debug_mark(bot, chat_id, 907, f"pdf_send_{group}")
+            except Exception as e:
+                debug_mark(bot, chat_id, 908, f"pdf_send_{group}_{e}")
+                bot.send_message(chat_id, f"⚠️ ارسال PDF {group} با خطا مواجه شد.")
 
         return all_images, alarm_images, alarms_count, cycle_time, cycle_items
 
@@ -1184,7 +1196,10 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str,
         f"📣 تعداد کل آلارم‌ها: {total_alarms}"
     )
 
-    bot.send_message(chat_id, summary)
+    try:
+        bot.send_message(chat_id, summary)
+    except Exception as e:
+        debug_mark(bot, chat_id, 909, f"cycle_summary_send_{group}_{e}")
 
 # =========================
 # اجرای دستی
@@ -1354,7 +1369,7 @@ def scheduler_loop():
 
             cfg = load_config()
 
-            # 1h – هر ساعت در دقیقه 22 (با آفست روی زمان محلی)
+            # 1h – هر ساعت در دقیقه 22
             if minute == 22 and cfg.get("enable_1h", True) and cfg.get("chat_id_1h"):
                 threading.Thread(
                     target=lambda: run_cycle(
@@ -1408,7 +1423,6 @@ def scheduler_loop():
 
             # 15m – هر ۱۵ دقیقه
             if minute % 15 == 0 and cfg.get("enable_15m", True):
-                bot_15m.send_message(chat_id, "پردازش...")
                 ch = cfg.get("chat_id_15m") or cfg.get("chat_id_1h")
                 if ch:
                     threading.Thread(
@@ -1425,8 +1439,8 @@ def scheduler_loop():
                         daemon=True
                     ).start()
 
-        except Exception:
-            debug_mark(bot_1h, ADMIN_CHAT, 1201, "scheduler_loop")
+        except Exception as e:
+            debug_mark(bot_1h, ADMIN_CHAT, 1201, f"scheduler_loop_{e}")
 
         time.sleep(60)
 
@@ -1440,10 +1454,8 @@ def main():
 
     if bot_1h:
         try:
-            # بدون skip_pending تا دیگر __skip_updates اجرا نشود
             bot_1h.infinity_polling(timeout=60)
         except telebot.apihelper.ApiTelegramException as e:
-            # اگر هنوز 409 آمد، معمولاً یعنی یک اینستنس دیگر بات فعال است
             debug_mark(bot_1h, ADMIN_CHAT, 1409, f"polling_error_{e}")
             print("ApiTelegramException:", e)
         except Exception as e:
