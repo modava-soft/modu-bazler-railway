@@ -1438,7 +1438,16 @@ def main():
     threading.Thread(target=scheduler_loop, daemon=True).start()
 
     if bot_1h:
-        bot_1h.infinity_polling(skip_pending=True, timeout=60)
+        try:
+            # بدون skip_pending تا دیگر __skip_updates اجرا نشود
+            bot_1h.infinity_polling(timeout=60)
+        except telebot.apihelper.ApiTelegramException as e:
+            # اگر هنوز 409 آمد، معمولاً یعنی یک اینستنس دیگر بات فعال است
+            debug_mark(bot_1h, ADMIN_CHAT, 1409, f"polling_error_{e}")
+            print("ApiTelegramException:", e)
+        except Exception as e:
+            debug_mark(bot_1h, ADMIN_CHAT, 1410, f"polling_generic_{e}")
+            print("Polling crashed:", e)
     else:
         print("توکن ربات 1h تنظیم نشده است.")
 
