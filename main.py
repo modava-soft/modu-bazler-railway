@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
-# Modu Bazler v7.8 – Multi-bot Plotly (ارتقای نسخه 7.7)
+# Modu Bazler v7.9 – Multi-bot Plotly
 # اصلاح‌ها:
-# 1) پیام خلاصهٔ هر سیکل حتماً ارسال می‌شود (با لاگ خطا در صورت مشکل)
-# 2) اضافه شدن «وضعیت چرخه‌ها» برای دیدن وضعیت قفل‌ها و اجرای فعلی
-# 3) خروجی PDF و عکس‌ها پایدارتر شده؛ اگر مشکلی باشد، پیام هشدار به ربات می‌رود
-# 4) فقط bot_1h polling می‌کند تا خطای 409 نداشته باشیم
+# - جلوگیری از اجرای هم‌زمان بات با هندل 409 و فاصلهٔ زمانی بین تلاش‌ها
+# - استفاده از آفست +۳:۳۰ در زمان‌ها (گزارش آلارم، سیکل‌ها، راهنما)
+# - اطمینان از ارسال پیام خلاصهٔ سیکل
+# - تنظیمات پیشرفته با کلید تلگرام، بدون حذف هیچ عملکردی
+# - بررسی ساخت عکس و PDF و لاگ خطا در صورت مشکل
 
 import os, json, time, threading, datetime as dt
 import requests, numpy as np, pandas as pd
@@ -29,8 +30,8 @@ PDF_DIR    = os.path.join(DATA_DIR, "pdf")
 for d in [DATA_DIR, CHARTS_DIR, PDF_DIR]:
     os.makedirs(d, exist_ok=True)
 
-CONFIG_PATH        = os.path.join(DATA_DIR, "config_v7_8.json")
-ALARM_HISTORY_PATH = os.path.join(DATA_DIR, "alarm_history_v7_8.json")
+CONFIG_PATH        = os.path.join(DATA_DIR, "config_v7_9.json")
+ALARM_HISTORY_PATH = os.path.join(DATA_DIR, "alarm_history_v7_9.json")
 
 ALL_SYMBOLS_100 = [
     "BTCUSDT","ETHUSDT","BNBUSDT","XRPUSDT","ADAUSDT","SOLUSDT","DOGEUSDT","TRXUSDT","LINKUSDT","MATICUSDT",
@@ -111,8 +112,11 @@ ADMIN_CHAT = (os.getenv("ADMIN_CHAT_ID") or "").strip()
 def now_utc():
     return dt.datetime.now(dt.timezone.utc)
 
-def now_utc_str():
-    return now_utc().strftime("%Y-%m-%d %H:%M:%S")
+def now_local():
+    return now_utc() + dt.timedelta(hours=3, minutes=30)
+
+def now_local_str():
+    return now_local().strftime("%Y-%m-%d %H:%M:%S")
 
 def debug_mark(bot, chat_id, code: int, where: str):
     msg = f"TEST#{code} @ {where}"
@@ -228,15 +232,18 @@ def force_clear_all_locks():
     for g, lk in CYCLE_LOCKS.items():
         lk.force_release()
 
-# وضعیت چرخه‌ها (برای مشکل شماره ۲)
 @bot_1h.message_handler(func=lambda m: m.text == "🔴 وضعیت چرخه‌ها")
 def cycles_status(m):
-    txt = "وضعیت چرخه‌ها:\n"
+    txt = "وضعیت چرخه‌ها (زمان‌ها بر اساس آفست +۳:۳۰):\n"
     for g in ["1h","4h","1d","15m"]:
         lk = CYCLE_LOCKS[g]
         locked = lk.lock.locked()
-        last   = lk.last_acquire.strftime("%Y-%m-%d %H:%M:%S") if lk.last_acquire else "None"
-        txt += f"- {g}: locked={locked}, last_acquire={last}\n"
+        last   = lk.last_acquire
+        if last:
+            last_local = (last + dt.timedelta(hours=3, minutes=30)).strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            last_local = "None"
+        txt += f"- {g}: locked={locked}, last_acquire={last_local}\n"
     bot_1h.send_message(m.chat.id, txt)
 
 # =========================
@@ -244,7 +251,7 @@ def cycles_status(m):
 # =========================
 
 HELP_TEXT = """
-راهنمای Modu Bazler v7.8 (چندرباته Plotly):
+راهنمای Modu Bazler v7.9 (چندرباته Plotly):
 
 🔵 منوی اصلی:
 - چک یک نماد
@@ -257,18 +264,24 @@ HELP_TEXT = """
 
 🟡 آلارم‌ها:
 - تنظیم آلارم‌ها (WMA و SMA)
-- گزارش آلارم‌ها (تاریخچه تا ۱۹ سیکل آخر هر گروه)
+- گزارش آلارم‌ها (تاریخچه تا ۱۹ سیکل آخر هر گروه، با زمان محلی +۳:۳۰)
 
 🔴 تنظیمات و وضعیت:
 - وضعیت سیستم
 - وضعیت چرخه‌ها
-- تنظیمات پیشرفته (کلیدهای تلگرام)
+- تنظیمات پیشرفته
 - ریست برنامه
 - رفع خطای قفل‌ها
 
 🟣 سایر:
 - راهنما
 - رفرش منو
+
+زمان‌بندی خودکار (بر اساس زمان محلی +۳:۳۰):
+- سیکل 1h: هر ساعت در دقیقه 22
+- سیکل 4h: ساعت‌های 2، 6، 10، 14، 18، 22 در دقیقه 7
+- سیکل 1d: ساعت 1:05
+- سیکل 15m: هر ۱۵ دقیقه
 
 پایان هر سیکل، پیام خلاصهٔ سیکل حتماً به ربات ارسال می‌شود.
 """
@@ -659,7 +672,6 @@ def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars
     png_path = os.path.join(CHARTS_DIR, png_name)
 
     try:
-        # نیاز به kaleido دارد؛ اگر نصب نباشد، خطا لاگ می‌شود
         fig.write_image(png_path, width=1800, height=1100, scale=3)
     except Exception as e:
         debug_mark(bot_1h, ADMIN_CHAT, 805, f"create_plotly_chart_write_{e}")
@@ -669,7 +681,7 @@ def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars
         "symbol":    symbol,
         "interval":  interval,
         "png_path":  png_path,
-        "created_at":now_utc_str(),
+        "created_at":now_local_str(),
         "wma":       df["WMA20"].tolist()      if "WMA20"      in df.columns else [],
         "wma_slope": df["WMA20_slope"].tolist()if "WMA20_slope"in df.columns else [],
         "sma20":     df["SMA20"].tolist()      if "SMA20"      in df.columns else [],
@@ -755,7 +767,7 @@ def store_cycle_alarms(group: str, cycle_time: str, cycle_items: list):
 @bot_1h.message_handler(func=lambda m: m.text == "🟡 گزارش آلارم‌ها")
 def alarms_report(m):
     load_alarm_history()
-    txt = "گزارش آلارم‌ها (تا ۱۹ سیکل آخر هر تایم‌فریم):\n\n"
+    txt = "گزارش آلارم‌ها (تا ۱۹ سیکل آخر هر تایم‌فریم، زمان محلی +۳:۳۰):\n\n"
 
     for group in ["15m", "1h", "4h", "1d"]:
         history = ALARM_HISTORY.get(group, [])
@@ -793,11 +805,11 @@ def do_check_one_symbol(m):
     bars = cfg.get("bars_per_chart", 90)
     bars = max(30, min(bars, cfg.get("max_bars", 300)))
 
-    ts  = now_utc().strftime("%Y%m%d_%H%M%S")
+    ts  = now_local().strftime("%Y%m%d_%H%M%S")
     png = f"check_{sym}_{ts}.png"
 
     info   = create_plotly_chart(sym, "1h", cfg["lookback_1h"], bars, png)
-    cycle_time  = now_utc_str()
+    cycle_time  = now_local_str()
     cycle_items = []
     alarms = detect_alarms(cfg, info, "1h", cycle_time, cycle_items)
 
@@ -1063,7 +1075,7 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
     bars_per_chart = cfg.get("bars_per_chart", max_bars)
     bars_per_chart = max(30, min(bars_per_chart, max_bars))
 
-    cycle_time  = now_utc_str()
+    cycle_time  = now_local_str()
     cycle_items = []
 
     if not lock.acquire(blocking=False):
@@ -1074,7 +1086,7 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
     pdf_filename = None
 
     if make_pdf and group in ["1h", "1d"]:
-        pdf_filename = os.path.join(PDF_DIR, f"{group}_{now_utc().strftime('%Y%m%d_%H%M%S')}.pdf")
+        pdf_filename = os.path.join(PDF_DIR, f"{group}_{now_local().strftime('%Y%m%d_%H%M%S')}.pdf")
         try:
             pdf = PdfPages(pdf_filename)
         except Exception as e:
@@ -1088,7 +1100,7 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
 
     try:
         if verbose:
-            bot.send_message(chat_id, f"شروع چرخه {group}\n{cycle_time} UTC")
+            bot.send_message(chat_id, f"شروع چرخه {group}\n{cycle_time} (محلی +۳:۳۰)")
 
         unique_symbols = list(dict.fromkeys(symbols))
         total     = len(unique_symbols)
@@ -1100,7 +1112,7 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
             if verbose and (processed % batch_size == 0 or processed == 1 or processed == total):
                 bot.send_message(chat_id, f"چرخه {group}: {processed}/{total}")
 
-            ts  = now_utc().strftime("%Y%m%d_%H%M%S")
+            ts  = now_local().strftime("%Y%m%d_%H%M%S")
             png = f"{group}_{sym}_{ts}.png"
 
             info   = create_plotly_chart(sym, interval, lookback_days, bars_per_chart, png)
@@ -1190,7 +1202,7 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str,
 
     summary = (
         f"📊 خلاصهٔ سیکل {group}\n"
-        f"🕒 زمان سیکل: {cycle_time}\n"
+        f"🕒 زمان سیکل (محلی +۳:۳۰): {cycle_time}\n"
         f"🔢 تعداد نمادها: {total_symbols}\n"
         f"🔔 نمادهای آلارم‌دار: {alarm_symbols}\n"
         f"📣 تعداد کل آلارم‌ها: {total_alarms}"
@@ -1356,20 +1368,18 @@ def run_all_cycles(m):
         ).start()
 
 # =========================
-# زمان‌بندی خودکار (با آفست +۳:۳۰)
+# زمان‌بندی خودکار (بر اساس زمان محلی +۳:۳۰)
 # =========================
 
 def scheduler_loop():
     while True:
         try:
-            now    = now_utc()
-            local  = now + dt.timedelta(hours=3, minutes=30)  # آفست ۳ ساعت و ۳۰ دقیقه
+            local  = now_local()
             minute = local.minute
             hour   = local.hour
 
             cfg = load_config()
 
-            # 1h – هر ساعت در دقیقه 22
             if minute == 22 and cfg.get("enable_1h", True) and cfg.get("chat_id_1h"):
                 threading.Thread(
                     target=lambda: run_cycle(
@@ -1385,7 +1395,6 @@ def scheduler_loop():
                     daemon=True
                 ).start()
 
-            # 4h – ساعت‌های مشخص، دقیقه 7
             if minute == 7 and hour in [2,6,10,14,18,22] and cfg.get("enable_4h", True):
                 ch = cfg.get("chat_id_4h") or cfg.get("chat_id_1h")
                 if ch:
@@ -1403,7 +1412,6 @@ def scheduler_loop():
                         daemon=True
                     ).start()
 
-            # 1d – ساعت 1:05
             if hour == 1 and minute == 5 and cfg.get("enable_1d", True):
                 ch = cfg.get("chat_id_1d") or cfg.get("chat_id_1h")
                 if ch:
@@ -1421,7 +1429,6 @@ def scheduler_loop():
                         daemon=True
                     ).start()
 
-            # 15m – هر ۱۵ دقیقه
             if minute % 15 == 0 and cfg.get("enable_15m", True):
                 ch = cfg.get("chat_id_15m") or cfg.get("chat_id_1h")
                 if ch:
@@ -1445,7 +1452,7 @@ def scheduler_loop():
         time.sleep(60)
 
 # =========================
-# main
+# main (هندل 409 و جلوگیری از چند اینستنس)
 # =========================
 
 def main():
@@ -1453,14 +1460,23 @@ def main():
     threading.Thread(target=scheduler_loop, daemon=True).start()
 
     if bot_1h:
-        try:
-            bot_1h.infinity_polling(timeout=60)
-        except telebot.apihelper.ApiTelegramException as e:
-            debug_mark(bot_1h, ADMIN_CHAT, 1409, f"polling_error_{e}")
-            print("ApiTelegramException:", e)
-        except Exception as e:
-            debug_mark(bot_1h, ADMIN_CHAT, 1410, f"polling_generic_{e}")
-            print("Polling crashed:", e)
+        while True:
+            try:
+                bot_1h.infinity_polling(timeout=60)
+            except telebot.apihelper.ApiTelegramException as e:
+                err_code = getattr(e, "error_code", None)
+                debug_mark(bot_1h, ADMIN_CHAT, 1409, f"polling_error_{e}")
+                print("ApiTelegramException:", e)
+                if err_code == 409:
+                    time.sleep(15)
+                    continue
+                else:
+                    break
+            except Exception as e:
+                debug_mark(bot_1h, ADMIN_CHAT, 1410, f"polling_generic_{e}")
+                print("Polling crashed:", e)
+                time.sleep(15)
+                continue
     else:
         print("توکن ربات 1h تنظیم نشده است.")
 
