@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
-# Modu Bazler v7.9 – Multi-bot Plotly
+# Modu Bazler v7.9 – Multi-bot Plotly (ارتقا یافته با تجمیع آلارم‌ها)
 # اصلاح‌ها:
 # - جلوگیری از اجرای هم‌زمان بات با هندل 409 و فاصلهٔ زمانی بین تلاش‌ها
 # - استفاده از آفست +۳:۳۰ در زمان‌ها (گزارش آلارم، سیکل‌ها، راهنما)
 # - اطمینان از ارسال پیام خلاصهٔ سیکل
 # - تنظیمات پیشرفته با کلید تلگرام، بدون حذف هیچ عملکردی
 # - بررسی ساخت عکس و PDF و لاگ خطا در صورت مشکل
+# - در پایان هر سیکل: ساخت عکس تجمیعی فقط از ارزهای آلارم‌دار (حداکثر ۱۲ در هر صفحه) و ارسال به همان ربات
 
 import os, json, time, threading, datetime as dt
 import requests, numpy as np, pandas as pd
@@ -1012,7 +1013,7 @@ def adv_reset_app(m):
     send_advanced_menu(m.chat.id)
 
 # =========================
-# عکس تجمیعی ۱۲تایی
+# عکس تجمیعی ۱۲تایی (همهٔ نمودارهای سیکل)
 # =========================
 
 def make_combined_pages(group: str, bot, chat_id: int, image_paths):
@@ -1059,6 +1060,55 @@ def make_combined_pages(group: str, bot, chat_id: int, image_paths):
                 bot.send_photo(chat_id, f, caption=f"📄 صفحه {idx} – عکس تجمیعی {group}")
         except Exception as e:
             debug_mark(bot, chat_id, 931, f"combined_send_{group}_{e}")
+
+# =========================
+# عکس تجمیعی مخصوص ارزهای آلارم‌دار (حداکثر ۱۲ در هر صفحه)
+# =========================
+
+def make_alarm_combined_pages(group: str, bot, chat_id: int, alarm_images):
+    if not alarm_images:
+        return
+
+    pages = []
+    page  = []
+
+    for img in alarm_images:
+        if img is None:
+            continue
+        page.append(img)
+        if len(page) == 12:
+            pages.append(page)
+            page = []
+
+    if page:
+        pages.append(page)
+
+    for idx, pg in enumerate(pages, start=1):
+        fig, axes = plt.subplots(3, 4, figsize=(16, 12))
+        axes = axes.flatten()
+
+        for ax, img_path in zip(axes, pg):
+            try:
+                img = plt.imread(img_path)
+                ax.imshow(img)
+                ax.axis("off")
+            except Exception as e:
+                ax.text(0.5, 0.5, "خطا در عکس", ha="center")
+                debug_mark(bot, chat_id, 940, f"alarm_combined_read_{group}_{e}")
+
+        for ax in axes[len(pg):]:
+            ax.axis("off")
+
+        out_path = os.path.join(CHARTS_DIR, f"alarm_combined_{group}_{idx}.png")
+        plt.tight_layout()
+        plt.savefig(out_path, dpi=150)
+        plt.close()
+
+        try:
+            with open(out_path, "rb") as f:
+                bot.send_photo(chat_id, f, caption=f"📄 صفحه آلارم‌ها {idx} – {group}")
+        except Exception as e:
+            debug_mark(bot, chat_id, 941, f"alarm_combined_send_{group}_{e}")
 
 # =========================
 # اجرای سیکل‌ها
@@ -1212,6 +1262,10 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str,
         bot.send_message(chat_id, summary)
     except Exception as e:
         debug_mark(bot, chat_id, 909, f"cycle_summary_send_{group}_{e}")
+
+    # ارسال عکس‌های تجمیعی مخصوص ارزهای آلارم‌دار
+    if alarm_images:
+        make_alarm_combined_pages(group, bot, chat_id, alarm_images)
 
 # =========================
 # اجرای دستی
