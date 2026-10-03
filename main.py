@@ -1408,6 +1408,7 @@ def scheduler_loop():
 
             # 15m – هر ۱۵ دقیقه
             if minute % 15 == 0 and cfg.get("enable_15m", True):
+                    bot_15m.send_message(chat_id, "پردازش...")
                 ch = cfg.get("chat_id_15m") or cfg.get("chat_id_1h")
                 if ch:
                     threading.Thread(
