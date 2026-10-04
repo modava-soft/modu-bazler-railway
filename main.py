@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
-# Modu Bazler v7.9 – نسخهٔ یکپارچه اصلاح‌شده نهایی با تنظیم تعداد نمودار تجمیعی و جلوگیری از تداخل سیکل‌ها
-# چیدمان تصاویر تجمیعی بر اساس تعداد نمودار (۲، ۴، ۶، ...) و فیت شدن در صفحه
+# Modu Bazler v7.9 – نسخهٔ یکپارچه نهایی با:
+# - تنظیم تعداد نمودار تجمیعی (مضربی از ۲) از منوی تنظیمات
+# - چیدمان خودکار تصاویر تجمیعی (۲،۴،۶،...) برای فیت شدن در صفحه
+# - جلوگیری از تداخل سیکل‌ها (اگر سیکل در حال اجرا باشد، سیکل جدید اجرا نمی‌شود)
 
 import os, json, time, threading, datetime as dt
 import requests, numpy as np, pandas as pd
@@ -316,6 +318,19 @@ def show_symbol_menu(chat_id, group):
 @bot_1h.message_handler(func=lambda m: m.text == "🟢 مدیریت نمادهای 1h")
 def manage_1h(m):
     show_symbol_menu(m.chat.id, "1h")
+
+@bot_1h.message_handler(func=lambda m: m.text == "🟢 مدیریت نمادهای 4h")
+def manage_4h(m):
+    show_symbol_menu(m.chat.id, "4h")
+
+@bot_1h.message_handler(func=lambda m: m.text == "🟢 مدیریت نمادهای 1d")
+def manage_1d(m):
+    show_symbol_menu(m.chat.id, "1d")
+
+@bot_1h.message_handler(func=lambda m: m.text == "🟢 مدیریت نمادهای 15m")
+def manage_15m(m):
+    show_symbol_menu(m.chat.id, "15m")
+
 @bot_1h.message_handler(func=lambda m: m.text == "🟡 تنظیم آلارم‌ها")
 def alarm_settings(m):
     cfg = load_config()
@@ -564,19 +579,6 @@ def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars
         "sma100":    df["SMA100"].tolist()     if "SMA100"     in df.columns else [],
         "sma200":    df["SMA200"].tolist()     if "SMA200"     in df.columns else []
     }
-
-
-@bot_1h.message_handler(func=lambda m: m.text == "🟢 مدیریت نمادهای 4h")
-def manage_4h(m):
-    show_symbol_menu(m.chat.id, "4h")
-
-@bot_1h.message_handler(func=lambda m: m.text == "🟢 مدیریت نمادهای 1d")
-def manage_1d(m):
-    show_symbol_menu(m.chat.id, "1d")
-
-@bot_1h.message_handler(func=lambda m: m.text == "🟢 مدیریت نمادهای 15m")
-def manage_15m(m):
-    show_symbol_menu(m.chat.id, "15m")
 
 def detect_alarms(cfg: dict, info: dict, group: str, cycle_time: str, cycle_items: list):
     alarms = []
@@ -950,12 +952,32 @@ def make_combined_pages(group: str, bot, chat_id: int, image_paths):
         pass
 
     pages = []
-    page  =(img)
-        if, pg in enumerate(pages, start=1):
+    page  = []
+    for img in image_paths:
+        if img is None:
+            continue
+        if not os.path.exists(img):
+            continue
+        page.append(img)
+        if len(page) == page_size:
+            pages.append(page)
+            page = []
+    if page:
+        pages.append(page)
+
+    for idx, pg in enumerate(pages, start=1):
         count = len(pg)
         rows, cols = _grid_for_count(count)
-       .subplots(rows, cols, figsize=(16, 9))
-        if isinstance in zip(axes, pg ax.imshow(im)
+        fig, axes = plt.subplots(rows, cols, figsize=(16, 9))
+        if isinstance(axes, np.ndarray):
+            axes = axes.flatten()
+        else:
+            axes = [axes]
+        for ax, img_path in zip(axes, pg):
+            try:
+                im = Image.open(img_path)
+                im = im.resize((800, 500))
+                ax.imshow(im)
                 ax.axis("off")
             except Exception as e:
                 ax.text(0.5, 0.5, "خطا در عکس", ha="center")
