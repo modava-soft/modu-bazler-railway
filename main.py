@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Modu Bazler v8.0 – نسخهٔ کامل یکپارچه با اصلاح کامل ساخت عکس تجمیعی بر اساس تعداد تصاویر
+# Modu Bazler v8.1 – نسخهٔ کامل با چیدمان هوشمند تصاویر و جلوگیری از تداخل سیکل‌ها
 
 import os, json, time, threading, datetime as dt
 import requests, numpy as np, pandas as pd
@@ -87,7 +87,6 @@ DEFAULT_CONFIG = {
     "make_alarm_combined":    True,
     "alarm_combined_message": True,
 
-    # تعداد نمودار در هر صفحه – مضربی از ۲
     "combined_page_size": 12,
 }
 
@@ -108,16 +107,6 @@ def now_local():
 
 def now_local_str():
     return now_local().strftime("%Y-%m-%d %H:%M:%S")
-
-def debug_mark(bot, chat_id, code: int, where: str):
-    msg = f"TEST#{code} @ {where}"
-    try:
-        if bot and chat_id:
-            bot.send_message(int(chat_id), msg)
-        elif ADMIN_CHAT and bot:
-            bot.send_message(int(ADMIN_CHAT), msg)
-    except:
-        pass
 
 def save_config(cfg: dict):
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
@@ -216,24 +205,22 @@ CYCLE_LOCKS = {
     "15m": SmartLock()
 }
 
+def force_clear_all_locks():
+    for g in CYCLE_LOCKS:
+        CYCLE_LOCKS[g].force_release()
+
 HELP_TEXT = """
-Modu Bazler v8.0 – راهنما:
+Modu Bazler v8.1 – راهنما:
 
 - چک یک نماد
-- اجرای دستی 1h / فوری 4h / فوری 1d / فوری 15m
-- اجرای چرخه‌ها (همهٔ تایم‌فریم‌ها)
-- عکس تجمیعی (تعداد نمودار قابل تنظیم، مضربی از ۲)
-- مدیریت نمادها
-- تنظیم آلارم‌ها و گزارش آلارم‌ها (با فلش رنگی برای آخرین آلارم‌ها)
-- تنظیمات پیشرفته (PDF، Combined، نمایش نمودار آلارم‌دار، عکس تجمیعی آلارم‌ها، تعداد نمودار در هر صفحه)
+- اجرای دستی و فوری برای 1h / 4h / 1d / 15m
+- اجرای همهٔ چرخه‌ها با جلوگیری از تداخل
+- عکس تجمیعی با چیدمان هوشمند (مضربی از ۲)
+- مدیریت نمادها برای هر تایم‌فریم
+- تنظیم آلارم‌ها و گزارش آلارم‌ها
+- تنظیمات پیشرفته (PDF، Combined، تعداد نمودار در صفحه)
 - وضعیت سیستم و وضعیت چرخه‌ها
-- ریست برنامه و رفع خطای قفل‌ها
-
-زمان‌ها بر اساس زمان محلی +۳:۳۰:
-- 1h: هر ساعت دقیقه 22
-- 4h: ساعت‌های 2، 6، 10، 14، 18، 22 دقیقه 7
-- 1d: ساعت 1:05
-- 15m: هر ۱۵ دقیقه
+- ریست برنامه و رفع قفل‌ها
 """
 
 def send_main_menu(chat_id):
@@ -271,7 +258,7 @@ def reset_app(m):
     for g in ["1h","4h","1d","15m"]:
         ALARM_HISTORY[g] = []
     save_alarm_history()
-    bot_1h.send_message(m.chat.id, "تنظیمات و تاریخچه آلارم‌ها به حالت اولیه برگشت.")
+    bot_1h.send_message(m.chat.id, "تنظیمات و تاریخچه آلارم‌ها ریست شد.")
     send_main_menu(m.chat.id)
 
 @bot_1h.message_handler(func=lambda m: m.text == "🔴 رفع خطای قفل‌ها")
@@ -286,10 +273,6 @@ def help_menu(m):
 @bot_1h.message_handler(func=lambda m: m.text == "بازگشت به منوی اصلی")
 def back_to_main(m):
     send_main_menu(m.chat.id)
-
-# ============================
-#   بخش ۲ — ساخت نمودارها
-# ============================
 
 def _binance_interval(i: str) -> str:
     return {"1h": "1h", "4h": "4h", "1d": "1d", "15m": "15m"}[i]
@@ -316,7 +299,6 @@ def fetch_ohlc(symbol: str, interval: str, lookback_days: int, max_bars: int) ->
     except:
         pass
 
-    # KuCoin fallback
     try:
         sym = symbol.replace("USDT", "-USDT")
         end = int(now_utc().timestamp())
@@ -387,7 +369,6 @@ def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars
         vertical_spacing=0.03
     )
 
-    # Price + SMA + WMA
     fig.add_trace(go.Candlestick(
         x=df.index, open=df["o"], high=df["h"], low=df["l"], close=df["c"], name="Price"
     ), row=1, col=1)
@@ -404,12 +385,10 @@ def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars
     fig.add_trace(go.Scatter(x=df.index, y=wma_up,   mode="lines", name="WMA20 Up",   line=dict(color="green", width=2)), row=1, col=1)
     fig.add_trace(go.Scatter(x=df.index, y=wma_down, mode="lines", name="WMA20 Down", line=dict(color="red",   width=2)), row=1, col=1)
 
-    # RSI
     fig.add_trace(go.Scatter(x=df.index, y=df["RSI14"], mode="lines", name="RSI14", line=dict(color="brown")), row=2, col=1)
     fig.add_hline(y=70, line=dict(color="red", dash="dash"), row=2, col=1)
     fig.add_hline(y=30, line=dict(color="green", dash="dash"), row=2, col=1)
 
-    # MACD
     fig.add_trace(go.Scatter(x=df.index, y=df["MACD"],        mode="lines", name="MACD",   line=dict(color="black")),   row=3, col=1)
     fig.add_trace(go.Scatter(x=df.index, y=df["MACD_signal"], mode="lines", name="Signal", line=dict(color="magenta")), row=3, col=1)
     fig.add_trace(go.Bar(x=df.index, y=df["MACD_hist"], name="Hist", marker_color="gray"), row=3, col=1)
@@ -449,17 +428,9 @@ def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars
         "sma200":    df["SMA200"].tolist()     if "SMA200"     in df.columns else []
     }
 
-
-# ============================================================
-#   بخش ۲ — اصلاح کامل ساخت عکس تجمیعی با چیدمان هوشمند
-# ============================================================
-
 def get_layout_for_page_size(n):
-    """
-    تعیین تعداد ستون و ردیف بر اساس تعداد تصاویر
-    """
     if n == 2:
-        return (1, 2)   # یک ستون، دو ردیف
+        return (1, 2)
     if n == 4:
         return (2, 2)
     if n == 6:
@@ -472,10 +443,8 @@ def get_layout_for_page_size(n):
         return (4, 4)
     if n == 24:
         return (4, 6)
-
-    # حالت عمومی: نزدیک‌ترین تقسیم‌بندی
     cols = 2
-    rows = n // cols
+    rows = (n + cols - 1) // cols
     return (cols, rows)
 
 def make_combined_pages(group: str, bot, chat_id: int, image_paths):
@@ -485,24 +454,19 @@ def make_combined_pages(group: str, bot, chat_id: int, image_paths):
     if not image_paths:
         return
 
-    bot.send_message(chat_id, f"📸 شروع ساخت عکس تجمیعی {group} با {page_size} نمودار...")
-
     pages = []
     page  = []
-
     for img in image_paths:
         if img and os.path.exists(img):
             page.append(img)
             if len(page) == page_size:
                 pages.append(page)
                 page = []
-
     if page:
         pages.append(page)
 
     for idx, pg in enumerate(pages, start=1):
         cols, rows = get_layout_for_page_size(len(pg))
-
         fig, axes = plt.subplots(rows, cols, figsize=(16, 12))
         axes = axes.flatten()
 
@@ -526,11 +490,57 @@ def make_combined_pages(group: str, bot, chat_id: int, image_paths):
         with open(out_path, "rb") as f:
             bot.send_photo(chat_id, f, caption=f"📄 صفحه {idx} – عکس تجمیعی {group}")
 
-    bot.send_message(chat_id, f"✅ ساخت عکس‌های تجمیعی {group} پایان یافت.")
+def make_alarm_combined_pages(group: str, bot, chat_id: int, image_paths):
+    cfg = load_config()
+    if not cfg.get("make_alarm_combined", True):
+        return
+    if not image_paths:
+        return
+
+    page_size = cfg.get("combined_page_size", 12)
+    pages = []
+    page  = []
+    for img in image_paths:
+        if img and os.path.exists(img):
+            page.append(img)
+            if len(page) == page_size:
+                pages.append(page)
+                page = []
+    if page:
+        pages.append(page)
+
+    for idx, pg in enumerate(pages, start=1):
+        cols, rows = get_layout_for_page_size(len(pg))
+        fig, axes = plt.subplots(rows, cols, figsize=(16, 12))
+        axes = axes.flatten()
+
+        for ax, img_path in zip(axes, pg):
+            try:
+                im = Image.open(img_path)
+                im = im.resize((900, 600))
+                ax.imshow(im)
+                ax.axis("off")
+            except:
+                ax.text(0.5, 0.5, "خطا در عکس", ha="center")
+
+        for ax in axes[len(pg):]:
+            ax.axis("off")
+
+        out_path = os.path.join(CHARTS_DIR, f"combined_alarm_{group}_{idx}.jpg")
+        plt.tight_layout()
+        plt.savefig(out_path, dpi=120, format="jpg")
+        plt.close()
+
+        caption = f"📄 صفحه {idx} – عکس تجمیعی آلارم‌ها ({group})"
+        if cfg.get("alarm_combined_message", True):
+            caption += "\nفقط نمادهای آلارم‌دار این سیکل"
+
+        with open(out_path, "rb") as f:
+            bot.send_photo(chat_id, f, caption=caption)
 
 
 # ============================
-#   بخش ۳ — آلارم‌ها و گزارش‌ها
+#   آلارم‌ها و گزارش‌ها
 # ============================
 
 def detect_alarms(cfg: dict, info: dict, group: str, cycle_time: str, cycle_items: list):
@@ -544,14 +554,12 @@ def detect_alarms(cfg: dict, info: dict, group: str, cycle_time: str, cycle_item
     if len(wma) < 3:
         return alarms
 
-    # جهت WMA20
     if cfg.get("alarm_wma_direction", True):
         if slope[-2] < 0 and slope[-1] > 0:
             alarms.append("WMA20 جهت رو به بالا گرفت")
         if slope[-2] > 0 and slope[-1] < 0:
             alarms.append("WMA20 جهت رو به پایین گرفت")
 
-    # برخورد WMA با SMA
     def cross(a, b):
         if len(a) < 2 or len(b) < 2:
             return False
@@ -564,7 +572,6 @@ def detect_alarms(cfg: dict, info: dict, group: str, cycle_time: str, cycle_item
     if cfg.get("alarm_cross_sma200", False) and cross(wma, sma200):
         alarms.append("برخورد WMA20 با SMA200")
 
-    # جهت SMAها
     def dir_change(arr, name):
         if len(arr) < 3:
             return
@@ -582,7 +589,6 @@ def detect_alarms(cfg: dict, info: dict, group: str, cycle_time: str, cycle_item
     if cfg.get("alarm_sma200_direction", False):
         dir_change(sma200, "SMA200")
 
-    # ذخیره در سیکل
     if alarms:
         cycle_items.append({
             "symbol":  info["symbol"],
@@ -716,7 +722,25 @@ def system_status(m):
 
 
 # ============================
-#   بخش ۴ — اجرای سیکل‌ها
+#   وضعیت چرخه‌ها
+# ============================
+
+@bot_1h.message_handler(func=lambda m: m.text == "🔴 وضعیت چرخه‌ها")
+def cycles_status(m):
+    txt = "وضعیت چرخه‌ها:\n"
+    for g in ["1h","4h","1d","15m"]:
+        lk = CYCLE_LOCKS[g]
+        locked = lk.lock.locked()
+        last   = lk.last_acquire
+        if last:
+            last_local = (last + dt.timedelta(hours=3, minutes=30)).strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            last_local = "None"
+        txt += f"- {g}: locked={locked}, last={last_local}\n"
+    bot_1h.send_message(m.chat.id, txt)
+
+# ============================
+#   اجرای یک سیکل (با قفل)
 # ============================
 
 def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
@@ -733,7 +757,6 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
     cycle_time  = now_local_str()
     cycle_items = []
 
-    # جلوگیری از تداخل سیکل‌ها
     if not lock.acquire(blocking=False):
         try:
             bot.send_message(
@@ -1048,25 +1071,6 @@ def quick_15m(m):
 
 
 # ============================
-#   وضعیت قفل‌ها
-# ============================
-
-@bot_1h.message_handler(func=lambda m: m.text == "🔴 وضعیت چرخه‌ها")
-def cycles_status(m):
-    txt = "وضعیت چرخه‌ها:\n"
-    for g in ["1h","4h","1d","15m"]:
-        lk = CYCLE_LOCKS[g]
-        locked = lk.lock.locked()
-        last   = lk.last_acquire
-        if last:
-            last_local = (last + dt.timedelta(hours=3, minutes=30)).strftime("%Y-%m-%d %H:%M:%S")
-        else:
-            last_local = "None"
-        txt += f"- {g}: locked={locked}, last={last_local}\n"
-    bot_1h.send_message(m.chat.id, txt)
-
-
-# ============================
 #   زمان‌بندی خودکار
 # ============================
 
@@ -1078,7 +1082,6 @@ def scheduler_loop():
             hour   = local.hour
             cfg = load_config()
 
-            # 1h
             if minute == 22 and cfg.get("enable_1h", True) and cfg.get("chat_id_1h"):
                 threading.Thread(
                     target=lambda: run_cycle(
@@ -1090,7 +1093,6 @@ def scheduler_loop():
                     daemon=True
                 ).start()
 
-            # 4h
             if minute == 7 and hour in [2,6,10,14,18,22] and cfg.get("enable_4h", True):
                 ch = cfg.get("chat_id_4h") or cfg.get("chat_id_1h")
                 if ch:
@@ -1104,7 +1106,6 @@ def scheduler_loop():
                         daemon=True
                     ).start()
 
-            # 1d
             if hour == 1 and minute == 5 and cfg.get("enable_1d", True):
                 ch = cfg.get("chat_id_1d") or cfg.get("chat_id_1h")
                 if ch:
@@ -1118,7 +1119,6 @@ def scheduler_loop():
                         daemon=True
                     ).start()
 
-            # 15m
             if minute % 15 == 0 and cfg.get("enable_15m", True):
                 ch = cfg.get("chat_id_15m") or cfg.get("chat_id_1h")
                 if ch:
@@ -1132,7 +1132,7 @@ def scheduler_loop():
                         daemon=True
                     ).start()
 
-        except Exception as e:
+        except Exception:
             pass
 
         time.sleep(60)
