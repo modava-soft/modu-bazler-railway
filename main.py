@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
-# Modu Bazler v7.9 – نسخهٔ یکپارچه با فونت قابل تنظیم و کیفیت بالای عکس‌های تجمیعی
+# Modu Bazler v7.9 – نسخهٔ یکپارچه نهایی با:
+# - تنظیم تعداد نمودار تجمیعی (مضربی از ۲) از منوی تنظیمات
+# - چیدمان خودکار تصاویر تجمیعی (۲،۴،۶،...) برای فیت شدن در صفحه
+# - جلوگیری از تداخل سیکل‌ها (اگر سیکل در حال اجرا باشد، سیکل جدید اجرا نمی‌شود)
 
 import os, json, time, threading, datetime as dt
 import requests, numpy as np, pandas as pd
@@ -86,11 +89,6 @@ DEFAULT_CONFIG = {
     "show_alarm_charts":      True,
     "make_alarm_combined":    True,
     "alarm_combined_message": True,
-
-    # ⭐ پارامترهای جدید فونت
-    "chart_font_size": 24,
-    "combined_font_size": 24,
-    "symbol_title_font_size": 30,
 
     # تعداد نمودار در هر صفحهٔ عکس تجمیعی – مضربی از ۲
     "combined_page_size": 6,
@@ -221,18 +219,32 @@ CYCLE_LOCKS = {
     "15m": SmartLock()
 }
 
+def force_clear_all_locks():
+    for lk in CYCLE_LOCKS.values():
+        lk.force_release()
+
 HELP_TEXT = """
 Modu Bazler v7.9 – راهنما کامل:
 
-- چک یک نماد
+- چک یک نماد (نمایش نمودار 1h با آلارم‌ها و لینک نمودار قبلی)
 - اجرای دستی 1h / فوری 4h / فوری 1d / فوری 15m
-- اجرای چرخه‌ها با جلوگیری از تداخل
-- عکس تجمیعی با فونت قابل تنظیم و کیفیت بالا
-- مدیریت نمادها
-- تنظیم آلارم‌ها
-- تنظیمات پیشرفته (PDF، Combined، فونت‌ها، تعداد نمودار)
-- وضعیت سیستم و چرخه‌ها
-- ریست برنامه و رفع قفل‌ها
+- اجرای چرخه‌ها (همهٔ تایم‌فریم‌ها با جلوگیری از تداخل سیکل‌ها – اگر سیکل در حال اجرا باشد، سیکل جدید اجرا نمی‌شود)
+- عکس تجمیعی (تعداد نمودار قابل تنظیم، مضربی از ۲؛ چیدمان خودکار:
+  • ۲ نمودار: صفحه به دو قسمت افقی (بالا/پایین)
+  • ۴ نمودار: ۲×۲
+  • ۶ نمودار: ۳×۲
+  • برای تعداد بیشتر، در ۲ ستون و چند ردیف تا فیت شدن در صفحه)
+- مدیریت نمادها (افزودن/حذف/نمایش نمادهای فعال در هر تایم‌فریم)
+- تنظیم آلارم‌ها و گزارش آلارم‌ها (با فلش رنگی برای آخرین آلارم‌ها)
+- تنظیمات پیشرفته (PDF، Combined، نمایش نمودار آلارم‌دار، عکس تجمیعی آلارم‌ها، تعداد نمودار در هر صفحه)
+- وضعیت سیستم و وضعیت چرخه‌ها (نمایش وضعیت قفل‌ها و زمان آخرین اجرا)
+- ریست برنامه و رفع خطای قفل‌ها
+
+زمان‌ها بر اساس زمان محلی +۳:۳۰:
+- 1h: هر ساعت دقیقه 22
+- 4h: ساعت‌های 2، 6، 10، 14، 18، 22 دقیقه 7
+- 1d: ساعت 1:05
+- 15m: هر ۱۵ دقیقه
 """
 
 def send_main_menu(chat_id):
@@ -270,7 +282,7 @@ def reset_app(m):
     for g in ["1h","4h","1d","15m"]:
         ALARM_HISTORY[g] = []
     save_alarm_history()
-    bot_1h.send_message(m.chat.id, "تنظیمات و تاریخچه آلارم‌ها ریست شد.")
+    bot_1h.send_message(m.chat.id, "تنظیمات و تاریخچه آلارم‌ها به حالت اولیه برگشت.")
     send_main_menu(m.chat.id)
 
 @bot_1h.message_handler(func=lambda m: m.text == "🔴 رفع خطای قفل‌ها")
@@ -467,10 +479,6 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars: int, png_name: str):
-    cfg = load_config()
-    font_size = cfg.get("chart_font_size", 24)
-    title_font = cfg.get("symbol_title_font_size", 30)
-
     df = fetch_ohlc(symbol, interval, lookback_days, max_bars)
     if df.empty:
         df = pd.DataFrame(columns=["o","h","l","c","v"])
@@ -485,19 +493,6 @@ def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars
         row_heights=[0.6, 0.2, 0.2],
         vertical_spacing=0.03
     )
-
-    # ⭐ فونت‌ها در همهٔ نمودارها
-    fig.update_layout(
-        font=dict(size=font_size),
-        title=dict(text=f"{symbol} – {interval}", font=dict(size=title_font)),
-        xaxis_rangeslider_visible=False,
-        template="plotly_white",
-        height=1000
-    )
-
-    fig.update_xaxes(tickfont=dict(size=font_size))
-    fig.update_yaxes(tickfont=dict(size=font_size))
-
     try:
         fig.add_trace(
             go.Candlestick(
@@ -510,42 +505,64 @@ def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars
             ),
             row=1, col=1
         )
-
-        fig.add_trace(go.Scatter(x=df.index, y=df["SMA20"],  mode="lines",
-                                 name="SMA20",  line=dict(color="blue")), row=1, col=1)
-        fig.add_trace(go.Scatter(x=df.index, y=df["SMA100"], mode="lines",
-                                 name="SMA100", line=dict(color="orange")), row=1, col=1)
-        fig.add_trace(go.Scatter(x=df.index, y=df["SMA200"], mode="lines",
-                                 name="SMA200", line=dict(color="purple")), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df["SMA20"],  mode="lines", name="SMA20",  line=dict(color="blue")),   row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df["SMA100"], mode="lines", name="SMA100", line=dict(color="orange")), row=1, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df["SMA200"], mode="lines", name="SMA200", line=dict(color="purple")), row=1, col=1)
 
         wma   = df["WMA20"]
         slope = df["WMA20_slope"]
         wma_up   = wma.where(slope >= 0)
         wma_down = wma.where(slope < 0)
 
-        fig.add_trace(go.Scatter(x=df.index, y=wma_up,   mode="lines",
-                                 name="WMA20 Up",   line=dict(color="green", width=2)), row=1, col=1)
-        fig.add_trace(go.Scatter(x=df.index, y=wma_down, mode="lines",
-                                 name="WMA20 Down", line=dict(color="red",   width=2)), row=1, col=1)
+        fig.add_trace(
+            go.Scatter(
+                x=df.index,
+                y=wma_up,
+                mode="lines",
+                name="WMA20 Up",
+                line=dict(color="green", width=2)
+            ),
+            row=1, col=1
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=df.index,
+                y=wma_down,
+                mode="lines",
+                name="WMA20 Down",
+                line=dict(color="red", width=2)
+            ),
+            row=1, col=1
+        )
 
-        fig.add_trace(go.Scatter(x=df.index, y=df["RSI14"], mode="lines",
-                                 name="RSI14", line=dict(color="brown")), row=2, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df["RSI14"], mode="lines", name="RSI14", line=dict(color="brown")), row=2, col=1)
         fig.add_hline(y=70, line=dict(color="red", dash="dash"), row=2, col=1)
         fig.add_hline(y=30, line=dict(color="green", dash="dash"), row=2, col=1)
 
-        fig.add_trace(go.Scatter(x=df.index, y=df["MACD"],        mode="lines",
-                                 name="MACD",   line=dict(color="black")),   row=3, col=1)
-        fig.add_trace(go.Scatter(x=df.index, y=df["MACD_signal"], mode="lines",
-                                 name="Signal", line=dict(color="magenta")), row=3, col=1)
-        fig.add_trace(go.Bar(x=df.index, y=df["MACD_hist"], name="Hist",
-                             marker_color="gray"), row=3, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df["MACD"],        mode="lines", name="MACD",   line=dict(color="black")),   row=3, col=1)
+        fig.add_trace(go.Scatter(x=df.index, y=df["MACD_signal"], mode="lines", name="Signal", line=dict(color="magenta")), row=3, col=1)
+        fig.add_trace(go.Bar(x=df.index, y=df["MACD_hist"], name="Hist", marker_color="gray"), row=3, col=1)
 
+        fig.update_layout(
+            title=f"{symbol} – {interval}",
+            xaxis_rangeslider_visible=False,
+            template="plotly_white",
+            height=1000
+        )
+        fig.add_annotation(
+            text=f"{symbol} – {interval}",
+            xref="paper", yref="paper",
+            x=0.5, y=1.05,
+            showarrow=False,
+            font=dict(size=30, color="black")
+        )
+        fig.update_yaxes(side="right", showgrid=True)
     except Exception:
         debug_mark(bot_1h, ADMIN_CHAT, 804, "create_plotly_chart_build")
 
     png_path = os.path.join(CHARTS_DIR, png_name)
     try:
-        fig.write_image(png_path, width=2000, height=1300, scale=3)
+        fig.write_image(png_path, width=1800, height=1100, scale=3)
         time.sleep(0.2)
     except Exception as e:
         debug_mark(bot_1h, ADMIN_CHAT, 805, f"create_plotly_chart_write_{e}")
@@ -633,26 +650,62 @@ def store_cycle_alarms(group: str, cycle_time: str, cycle_items: list):
 @bot_1h.message_handler(func=lambda m: m.text == "🟡 گزارش آلارم‌ها")
 def alarms_report(m):
     load_alarm_history()
-    txt = "گزارش آلارم‌ها (تا ۱۹ سیکل آخر هر تایم‌فریم):\n\n"
+    txt = "گزارش آلارم‌ها (تا ۱۹ سیکل آخر هر تایم‌فریم، زمان محلی +۳:۳۰):\n\n"
     for group in ["15m", "1h", "4h", "1d"]:
         history = ALARM_HISTORY.get(group, [])
         txt += f"🔹 تایم‌فریم {group}:\n"
         if not history:
-            txt += "  هیچ آلارمی ثبت نشده.\n\n"
+            txt += "  هنوز آلارمی ثبت نشده است.\n\n"
             continue
         last_cycle = history[-1]
         last_symbols = {item["symbol"] for item in last_cycle["items"]}
         for idx, cycle in enumerate(history[::-1], start=1):
-            txt += f"  🕒 سیکل #{idx} — زمان: {cycle['cycle_time']}\n"
+            txt += f"  🕒 سیکل #{idx} در زمان: {cycle['cycle_time']}\n"
             for item in cycle["items"]:
                 sym = item["symbol"]
                 arrow = " 🔺" if sym in last_symbols else ""
-                txt += f"    • {sym}{arrow}:\n"
+                txt += f"    • {sym}{arrow} ({item['interval']}):\n"
                 for a in item["alarms"]:
                     txt += f"      - {a}\n"
-                txt += f"      زمان: {item['time']}\n"
+                txt += f"      زمان آلارم: {item['time']}\n"
             txt += "\n"
+        txt += "\n"
     bot_1h.send_message(m.chat.id, txt)
+
+@bot_1h.message_handler(func=lambda m: m.text == "🔵 چک یک نماد")
+def check_one_symbol(m):
+    msg = bot_1h.send_message(m.chat.id, "نماد را وارد کنید (مثال: BTCUSDT):")
+    bot_1h.register_next_step_handler(msg, do_check_one_symbol)
+
+def do_check_one_symbol(m):
+    sym = m.text.strip().upper()
+    cfg = load_config()
+    bars = cfg.get("bars_per_chart", 90)
+    bars = max(30, min(bars, cfg.get("max_bars", 300)))
+    ts  = now_local().strftime("%Y%m%d_%H%M%S")
+    png = f"check_{sym}_{ts}.png"
+    info   = create_plotly_chart(sym, "1h", cfg["lookback_1h"], bars, png)
+    cycle_time  = now_local_str()
+    cycle_items = []
+    alarms = detect_alarms(cfg, info, "1h", cycle_time, cycle_items)
+    store_cycle_alarms("1h", cycle_time, cycle_items)
+    caption = f"{sym} (چک 1h)"
+    if alarms:
+        caption += "\n🔔 آلارم‌ها:"
+        for a in alarms:
+            caption += f"\n - {a}"
+    if sym in LAST_MSG_ID:
+        caption += f"\n🔗 نمودار قبلی: https://t.me/c/{m.chat.id}/{LAST_MSG_ID[sym]}"
+    if info["png_path"]:
+        try:
+            with open(info["png_path"], "rb") as f:
+                msg = bot_1h.send_photo(m.chat.id, f, caption=caption)
+            LAST_MSG_ID[sym] = msg.message_id
+        except Exception as e:
+            debug_mark(bot_1h, ADMIN_CHAT, 810, f"check_one_symbol_send_{e}")
+            bot_1h.send_message(m.chat.id, caption + "\n⚠️ خطا در ارسال عکس.")
+    else:
+        bot_1h.send_message(m.chat.id, caption + "\n⚠️ عکس ساخته نشد.")
 
 @bot_1h.message_handler(func=lambda m: m.text == "🔴 وضعیت سیستم")
 def system_status(m):
@@ -664,71 +717,105 @@ def system_status(m):
     txt += f"نمادهای 15m: {len(cfg['symbols_15m'])}\n"
     txt += f"bars_per_chart: {cfg.get('bars_per_chart', 90)}\n"
     txt += f"combined_page_size: {cfg.get('combined_page_size', 6)}\n"
-    txt += f"chart_font_size: {cfg.get('chart_font_size', 24)}\n"
-    txt += f"combined_font_size: {cfg.get('combined_font_size', 24)}\n"
-    txt += f"symbol_title_font_size: {cfg.get('symbol_title_font_size', 30)}\n"
+    txt += f"PDF 1h: {'ON' if cfg['make_pdf_1h'] else 'OFF'}\n"
+    txt += f"PDF 1d: {'ON' if cfg['make_pdf_1d'] else 'OFF'}\n"
+    txt += f"Combined 15m: {'ON' if cfg.get('make_combined_15m', True) else 'OFF'}\n"
+    txt += f"Combined all: {'ON' if cfg.get('make_combined_all', True) else 'OFF'}\n"
+    txt += f"show_alarm_charts: {'ON' if cfg.get('show_alarm_charts', True) else 'OFF'}\n"
+    txt += f"make_alarm_combined: {'ON' if cfg.get('make_alarm_combined', True) else 'OFF'}\n"
+    txt += f"alarm_combined_message: {'ON' if cfg.get('alarm_combined_message', True) else 'OFF'}\n"
+    txt += f"verbose 1h: {'ON' if cfg['verbose_1h'] else 'OFF'}\n"
+    txt += f"verbose 4h: {'ON' if cfg['verbose_4h'] else 'OFF'}\n"
+    txt += f"verbose 1d: {'ON' if cfg['verbose_1d'] else 'OFF'}\n"
+    txt += f"verbose 15m: {'ON' if cfg['verbose_15m'] else 'OFF'}\n"
+    txt += f"enable_1h: {'ON' if cfg.get('enable_1h', True) else 'OFF'}\n"
+    txt += f"enable_4h: {'ON' if cfg.get('enable_4h', True) else 'OFF'}\n"
+    txt += f"enable_1d: {'ON' if cfg.get('enable_1d', True) else 'OFF'}\n"
+    txt += f"enable_15m: {'ON' if cfg.get('enable_15m', True) else 'OFF'}\n"
+    txt += f"lock_timeout_sec: {cfg.get('lock_timeout_sec', 600)}\n"
     bot_1h.send_message(m.chat.id, txt)
 
 def send_advanced_menu(chat_id):
     cfg = load_config()
     txt = "تنظیمات پیشرفته:\n"
-    txt += f"chart_font_size: {cfg.get('chart_font_size', 24)}\n"
-    txt += f"combined_font_size: {cfg.get('combined_font_size', 24)}\n"
-    txt += f"symbol_title_font_size: {cfg.get('symbol_title_font_size', 30)}\n"
-    txt += f"combined_page_size: {cfg.get('combined_page_size', 6)}\n"
-
+    txt += f"PDF 1h: {'ON' if cfg['make_pdf_1h'] else 'OFF'}\n"
+    txt += f"PDF 1d: {'ON' if cfg['make_pdf_1d'] else 'OFF'}\n"
+    txt += f"Combined 15m: {'ON' if cfg.get('make_combined_15m', True) else 'OFF'}\n"
+    txt += f"Combined all: {'ON' if cfg.get('make_combined_all', True) else 'OFF'}\n"
+    txt += f"bars_per_chart: {cfg.get('bars_per_chart', 90)}\n"
+    txt += f"combined_page_size: {cfg.get('combined_page_size', 6)} (مضربی از ۲)\n"
+    txt += f"verbose 1h: {'ON' if cfg['verbose_1h'] else 'OFF'}\n"
+    txt += f"verbose 4h: {'ON' if cfg['verbose_4h'] else 'OFF'}\n"
+    txt += f"verbose 1d: {'ON' if cfg['verbose_1d'] else 'OFF'}\n"
+    txt += f"verbose 15m: {'ON' if cfg['verbose_15m'] else 'OFF'}\n"
+    txt += f"enable 1h: {'ON' if cfg.get('enable_1h', True) else 'OFF'}\n"
+    txt += f"enable 4h: {'ON' if cfg.get('enable_4h', True) else 'OFF'}\n"
+    txt += f"enable 1d: {'ON' if cfg.get('enable_1d', True) else 'OFF'}\n"
+    txt += f"enable 15m: {'ON' if cfg.get('enable_15m', True) else 'OFF'}\n"
+    txt += f"show_alarm_charts: {'ON' if cfg.get('show_alarm_charts', True) else 'OFF'}\n"
+    txt += f"make_alarm_combined: {'ON' if cfg.get('make_alarm_combined', True) else 'OFF'}\n"
+    txt += f"alarm_combined_message: {'ON' if cfg.get('alarm_combined_message', True) else 'OFF'}\n"
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.row("فونت نمودار +2", "فونت نمودار -2")
-    kb.row("فونت تجمیعی +2", "فونت تجمیعی -2")
-    kb.row("فونت نام ارز +2", "فونت نام ارز -2")
+    kb.row("PDF 1h", "PDF 1d")
+    kb.row("Combined 15m", "Combined all")
+    kb.row("کندل +30", "کندل -30")
     kb.row("تعداد نمودار +2", "تعداد نمودار -2")
+    kb.row("verbose 1h", "verbose 4h")
+    kb.row("verbose 1d", "verbose 15m")
+    kb.row("enable 1h", "enable 4h")
+    kb.row("enable 1d", "enable 15m")
+    kb.row("show_alarm_charts", "make_alarm_combined")
+    kb.row("alarm_combined_message", "ریست کامل برنامه")
     kb.row("بازگشت به منوی اصلی")
-
     bot_1h.send_message(chat_id, txt, reply_markup=kb)
 
 @bot_1h.message_handler(func=lambda m: m.text == "🔴 تنظیمات پیشرفته")
 def advanced_settings(m):
     send_advanced_menu(m.chat.id)
 
-@bot_1h.message_handler(func=lambda m: m.text == "فونت نمودار +2")
-def adv_chart_font_plus(m):
+@bot_1h.message_handler(func=lambda m: m.text == "PDF 1h")
+def adv_pdf_1h(m):
     cfg = load_config()
-    cfg["chart_font_size"] += 2
+    cfg["make_pdf_1h"] = not cfg["make_pdf_1h"]
     save_config(cfg)
     send_advanced_menu(m.chat.id)
 
-@bot_1h.message_handler(func=lambda m: m.text == "فونت نمودار -2")
-def adv_chart_font_minus(m):
+@bot_1h.message_handler(func=lambda m: m.text == "PDF 1d")
+def adv_pdf_1d(m):
     cfg = load_config()
-    cfg["chart_font_size"] = max(10, cfg["chart_font_size"] - 2)
+    cfg["make_pdf_1d"] = not cfg["make_pdf_1d"]
     save_config(cfg)
     send_advanced_menu(m.chat.id)
 
-@bot_1h.message_handler(func=lambda m: m.text == "فونت تجمیعی +2")
-def adv_combined_font_plus(m):
+@bot_1h.message_handler(func=lambda m: m.text == "Combined 15m")
+def adv_combined_15m(m):
     cfg = load_config()
-    cfg["combined_font_size"] += 2
+    cfg["make_combined_15m"] = not cfg.get("make_combined_15m", True)
     save_config(cfg)
     send_advanced_menu(m.chat.id)
 
-@bot_1h.message_handler(func=lambda m: m.text == "فونت تجمیعی -2")
-def adv_combined_font_minus(m):
+@bot_1h.message_handler(func=lambda m: m.text == "Combined all")
+def adv_combined_all(m):
     cfg = load_config()
-    cfg["combined_font_size"] = max(10, cfg["combined_font_size"] - 2)
+    cfg["make_combined_all"] = not cfg.get("make_combined_all", True)
     save_config(cfg)
     send_advanced_menu(m.chat.id)
 
-@bot_1h.message_handler(func=lambda m: m.text == "فونت نام ارز +2")
-def adv_symbol_font_plus(m):
+@bot_1h.message_handler(func=lambda m: m.text == "کندل +30")
+def adv_bars_plus(m):
     cfg = load_config()
-    cfg["symbol_title_font_size"] += 2
+    bars = cfg.get("bars_per_chart", 90) + 30
+    if bars > cfg.get("max_bars", 300):
+        bars = cfg.get("max_bars", 300)
+    cfg["bars_per_chart"] = max(30, bars)
     save_config(cfg)
     send_advanced_menu(m.chat.id)
 
-@bot_1h.message_handler(func=lambda m: m.text == "فونت نام ارز -2")
-def adv_symbol_font_minus(m):
+@bot_1h.message_handler(func=lambda m: m.text == "کندل -30")
+def adv_bars_minus(m):
     cfg = load_config()
-    cfg["symbol_title_font_size"] = max(10, cfg["symbol_title_font_size"] - 2)
+    bars = cfg.get("bars_per_chart", 90) - 30
+    cfg["bars_per_chart"] = max(30, bars)
     save_config(cfg)
     send_advanced_menu(m.chat.id)
 
@@ -736,9 +823,11 @@ def adv_symbol_font_minus(m):
 def adv_page_plus(m):
     cfg = load_config()
     size = cfg.get("combined_page_size", 6) + 2
+    if size > 24:
+        size = 24
     if size % 2 != 0:
         size += 1
-    cfg["combined_page_size"] = min(24, size)
+    cfg["combined_page_size"] = max(2, size)
     save_config(cfg)
     send_advanced_menu(m.chat.id)
 
@@ -750,113 +839,226 @@ def adv_page_minus(m):
         size = 2
     if size % 2 != 0:
         size -= 1
-    cfg["combined_page_size"] = size
+    cfg["combined_page_size"] = max(2, size)
     save_config(cfg)
     send_advanced_menu(m.chat.id)
 
-# ⭐ چیدمان جدید عکس‌های تجمیعی با کیفیت بالا
+@bot_1h.message_handler(func=lambda m: m.text == "verbose 1h")
+def adv_verbose_1h(m):
+    cfg = load_config()
+    cfg["verbose_1h"] = not cfg["verbose_1h"]
+    save_config(cfg)
+    send_advanced_menu(m.chat.id)
+
+@bot_1h.message_handler(func=lambda m: m.text == "verbose 4h")
+def adv_verbose_4h(m):
+    cfg = load_config()
+    cfg["verbose_4h"] = not cfg["verbose_4h"]
+    save_config(cfg)
+    send_advanced_menu(m.chat.id)
+
+@bot_1h.message_handler(func=lambda m: m.text == "verbose 1d")
+def adv_verbose_1d(m):
+    cfg = load_config()
+    cfg["verbose_1d"] = not cfg["verbose_1d"]
+    save_config(cfg)
+    send_advanced_menu(m.chat.id)
+
+@bot_1h.message_handler(func=lambda m: m.text == "verbose 15m")
+def adv_verbose_15m(m):
+    cfg = load_config()
+    cfg["verbose_15m"] = not cfg["verbose_15m"]
+    save_config(cfg)
+    send_advanced_menu(m.chat.id)
+
+@bot_1h.message_handler(func=lambda m: m.text == "enable 1h")
+def adv_enable_1h(m):
+    cfg = load_config()
+    cfg["enable_1h"] = not cfg.get("enable_1h", True)
+    save_config(cfg)
+    send_advanced_menu(m.chat.id)
+
+@bot_1h.message_handler(func=lambda m: m.text == "enable 4h")
+def adv_enable_4h(m):
+    cfg = load_config()
+    cfg["enable_4h"] = not cfg.get("enable_4h", True)
+    save_config(cfg)
+    send_advanced_menu(m.chat.id)
+
+@bot_1h.message_handler(func=lambda m: m.text == "enable 1d")
+def adv_enable_1d(m):
+    cfg = load_config()
+    cfg["enable_1d"] = not cfg.get("enable_1d", True)
+    save_config(cfg)
+    send_advanced_menu(m.chat.id)
+
+@bot_1h.message_handler(func=lambda m: m.text == "enable 15m")
+def adv_enable_15m(m):
+    cfg = load_config()
+    cfg["enable_15m"] = not cfg.get("enable_15m", True)
+    save_config(cfg)
+    send_advanced_menu(m.chat.id)
+
+@bot_1h.message_handler(func=lambda m: m.text == "show_alarm_charts")
+def adv_show_alarm_charts(m):
+    cfg = load_config()
+    cfg["show_alarm_charts"] = not cfg.get("show_alarm_charts", True)
+    save_config(cfg)
+    send_advanced_menu(m.chat.id)
+
+@bot_1h.message_handler(func=lambda m: m.text == "make_alarm_combined")
+def adv_make_alarm_combined(m):
+    cfg = load_config()
+    cfg["make_alarm_combined"] = not cfg.get("make_alarm_combined", True)
+    save_config(cfg)
+    send_advanced_menu(m.chat.id)
+
+@bot_1h.message_handler(func=lambda m: m.text == "alarm_combined_message")
+def adv_alarm_combined_message(m):
+    cfg = load_config()
+    cfg["alarm_combined_message"] = not cfg.get("alarm_combined_message", True)
+    save_config(cfg)
+    send_advanced_menu(m.chat.id)
+
+@bot_1h.message_handler(func=lambda m: m.text == "ریست کامل برنامه")
+def adv_reset_app(m):
+    cfg = reset_config()
+    for g in ["1h","4h","1d","15m"]:
+        ALARM_HISTORY[g] = []
+    save_alarm_history()
+    save_config(cfg)
+    bot_1h.send_message(m.chat.id, "ریست کامل انجام شد.")
+    send_advanced_menu(m.chat.id)
+
 def _grid_for_count(n: int):
+    if n <= 0:
+        return 1, 1
     if n == 2:
+        # دو تصویر: بالا/پایین
         return 2, 1
+    # برای ۴، ۶، ۸، ... : دو ستون و چند ردیف
     cols = 2
-    rows = (n + 1) // 2
+    rows = (n + cols - 1) // cols
     return rows, cols
 
 def make_combined_pages(group: str, bot, chat_id: int, image_paths):
     cfg = load_config()
     page_size = cfg.get("combined_page_size", 6)
-    font_size = cfg.get("combined_font_size", 24)
-
     if not image_paths:
         return
+    try:
+        bot.send_message(chat_id, f"📸 شروع ساخت عکس تجمیعی {group} با {page_size} نمودار در هر صفحه...")
+    except:
+        pass
 
-    pages, page = [], []
+    pages = []
+    page  = []
     for img in image_paths:
-        if img and os.path.exists(img):
-            page.append(img)
-            if len(page) == page_size:
-                pages.append(page)
-                page = []
+        if img is None:
+            continue
+        if not os.path.exists(img):
+            continue
+        page.append(img)
+        if len(page) == page_size:
+            pages.append(page)
+            page = []
     if page:
         pages.append(page)
 
     for idx, pg in enumerate(pages, start=1):
         count = len(pg)
         rows, cols = _grid_for_count(count)
-
-        fig, axes = plt.subplots(rows, cols, figsize=(18, 12), dpi=200)
+        fig, axes = plt.subplots(rows, cols, figsize=(16, 9))
         if isinstance(axes, np.ndarray):
             axes = axes.flatten()
         else:
             axes = [axes]
-
         for ax, img_path in zip(axes, pg):
             try:
                 im = Image.open(img_path)
-                im = im.resize((1200, 800))
+                im = im.resize((800, 500))
                 ax.imshow(im)
                 ax.axis("off")
-            except:
-                ax.text(0.5, 0.5, "خطا در عکس", fontsize=font_size, ha="center")
-
+            except Exception as e:
+                ax.text(0.5, 0.5, "خطا در عکس", ha="center")
+                debug_mark(bot, chat_id, 930, f"combined_read_{group}_{e}")
         for ax in axes[count:]:
             ax.axis("off")
-
         out_path = os.path.join(CHARTS_DIR, f"combined_{group}_{idx}.jpg")
         plt.tight_layout()
-        plt.savefig(out_path, dpi=200)
+        plt.savefig(out_path, dpi=120, format="jpg")
         plt.close()
+        try:
+            with open(out_path, "rb") as f:
+                bot.send_photo(chat_id, f, caption=f"📄 صفحه {idx} – عکس تجمیعی {group}")
+        except Exception as e:
+            debug_mark(bot, chat_id, 931, f"combined_send_{group}_{e}")
 
-        with open(out_path, "rb") as f:
-            bot.send_photo(chat_id, f, caption=f"📄 صفحه {idx} – عکس تجمیعی {group}")
+    try:
+        bot.send_message(chat_id, f"✅ ساخت و ارسال عکس‌های تجمیعی {group} پایان یافت.")
+    except:
+        pass
 
 def make_alarm_combined_pages(group: str, bot, chat_id: int, alarm_images):
-    cfg = load_config()
-    page_size = cfg.get("combined_page_size", 6)
-    font_size = cfg.get("combined_font_size", 24)
-
     if not alarm_images:
         return
+    cfg = load_config()
+    if not cfg.get("make_alarm_combined", True):
+        return
+    page_size = cfg.get("combined_page_size", 6)
+    try:
+        bot.send_message(chat_id, f"📸 شروع ساخت عکس تجمیعی آلارم‌ها {group} با {page_size} نمودار در هر صفحه...")
+    except:
+        pass
 
-    pages, page = [], []
+    pages = []
+    page  = []
     for img in alarm_images:
-        if img and os.path.exists(img):
-            page.append(img)
-            if len(page) == page_size:
-                pages.append(page)
-                page = []
+        if img is None:
+            continue
+        if not os.path.exists(img):
+            continue
+        page.append(img)
+        if len(page) == page_size:
+            pages.append(page)
+            page = []
     if page:
         pages.append(page)
 
     for idx, pg in enumerate(pages, start=1):
         count = len(pg)
         rows, cols = _grid_for_count(count)
-
-        fig, axes = plt.subplots(rows, cols, figsize=(18, 12), dpi=200)
+        fig, axes = plt.subplots(rows, cols, figsize=(16, 9))
         if isinstance(axes, np.ndarray):
             axes = axes.flatten()
         else:
             axes = [axes]
-
         for ax, img_path in zip(axes, pg):
             try:
                 im = Image.open(img_path)
-                im = im.resize((1200, 800))
+                im = im.resize((800, 500))
                 ax.imshow(im)
                 ax.axis("off")
-            except:
-                ax.text(0.5, 0.5, "خطا در عکس", fontsize=font_size, ha="center")
-
+            except Exception as e:
+                ax.text(0.5, 0.5, "خطا در عکس", ha="center")
+                debug_mark(bot, chat_id, 940, f"alarm_combined_read_{group}_{e}")
         for ax in axes[count:]:
             ax.axis("off")
-
         out_path = os.path.join(CHARTS_DIR, f"alarm_combined_{group}_{idx}.jpg")
         plt.tight_layout()
-        plt.savefig(out_path, dpi=200)
+        plt.savefig(out_path, dpi=120, format="jpg")
         plt.close()
+        try:
+            with open(out_path, "rb") as f:
+                bot.send_photo(chat_id, f, caption=f"📄 صفحه آلارم‌ها {idx} – {group}")
+        except Exception as e:
+            debug_mark(bot, chat_id, 941, f"alarm_combined_send_{group}_{e}")
 
-        with open(out_path, "rb") as f:
-            bot.send_photo(chat_id, f, caption=f"📄 صفحه آلارم‌ها {idx} – {group}")
+    if cfg.get("alarm_combined_message", True):
+        try:
+            bot.send_message(chat_id, f"✅ عکس‌های تجمیعی آلارم‌های سیکل {group} ارسال شد.")
+        except Exception as e:
+            debug_mark(bot, chat_id, 942, f"alarm_combined_msg_{group}_{e}")
 
 def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
                    lookback_days: int, max_bars: int, make_pdf: bool):
@@ -872,8 +1074,16 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
     cycle_time  = now_local_str()
     cycle_items = []
 
+    # جلوگیری از تداخل سیکل‌ها: اگر قفل مشغول باشد، سیکل جدید اجرا نمی‌شود
     if not lock.acquire(blocking=False):
-        bot.send_message(chat_id, f"⚠️ سیکل {group} در حال اجراست — اجرای جدید انجام نشد.")
+        try:
+            bot.send_message(
+                chat_id,
+                f"⚠️ سیکل {group} در حال اجراست — اجرای جدید در {cycle_time} انجام نشد."
+            )
+        except:
+            pass
+        debug_mark(bot, chat_id, 902, f"run_cycle_lock_busy_{group}")
         return [], [], 0, cycle_time, cycle_items
 
     pdf          = None
@@ -883,9 +1093,10 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
         pdf_filename = os.path.join(PDF_DIR, f"{group}_{now_local().strftime('%Y%m%d_%H%M%S')}.pdf")
         try:
             pdf = PdfPages(pdf_filename)
-        except:
-            bot.send_message(chat_id, f"⚠️ PDF {group} ساخته نشد.")
+        except Exception as e:
+            debug_mark(bot, chat_id, 905, f"run_cycle_pdf_init_{group}_{e}")
             pdf = None
+            bot.send_message(chat_id, f"⚠️ PDF {group} ساخته نشد.")
 
     all_images   = []
     alarm_images = []
@@ -894,55 +1105,65 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
     try:
         unique_symbols = list(dict.fromkeys(symbols))
         total     = len(unique_symbols)
-        bot.send_message(chat_id, f"🚀 شروع اجرای سیکل {group} — تعداد نمادها: {total}")
+        try:
+            bot.send_message(
+                chat_id,
+                f"🚀 شروع اجرای چرخه {group} در {cycle_time} (محلی +۳:۳۰) – تعداد نمادها: {total}"
+            )
+        except:
+            pass
 
         processed = 0
 
         for sym in unique_symbols:
             processed += 1
-
             if verbose and (processed % batch_size == 0 or processed == 1 or processed == total):
-                bot.send_message(chat_id, f"چرخه {group}: {processed}/{total}")
-
+                try:
+                    bot.send_message(chat_id, f"چرخه {group}: {processed}/{total}")
+                except:
+                    pass
             ts  = now_local().strftime("%Y%m%d_%H%M%S")
             png = f"{group}_{sym}_{ts}.png"
-
             info   = create_plotly_chart(sym, interval, lookback_days, bars_per_chart, png)
             alarms = detect_alarms(cfg, info, group, cycle_time, cycle_items)
-
             if info["png_path"]:
                 all_images.append(info["png_path"])
-
             if alarms:
                 alarms_count += len(alarms)
                 if info["png_path"]:
                     alarm_images.append(info["png_path"])
 
-            send_chart = verbose or bool(alarms)
+            send_this_chart = False
+            if verbose:
+                send_this_chart = True
+            else:
+                if alarms:
+                    send_this_chart = True
 
             if alarms and not cfg.get("show_alarm_charts", True):
-                send_chart = False
-                txt = f"{sym} ({group}) — آلارم‌ها:\n"
-                for a in alarms:
-                    txt += f"- {a}\n"
-                bot.send_message(chat_id, txt)
+                send_this_chart = False
+                try:
+                    txt = f"{sym} ({group}) – آلارم‌ها:\n"
+                    for a in alarms:
+                        txt += f"- {a}\n"
+                    bot.send_message(chat_id, txt)
+                except Exception as e:
+                    debug_mark(bot, chat_id, 913, f"alarm_text_only_{group}_{e}")
 
-            if send_chart and info["png_path"]:
+            if send_this_chart and info["png_path"]:
                 caption = f"{sym} ({group})"
                 if alarms:
                     caption += "\n🔔 آلارم‌ها:"
                     for a in alarms:
                         caption += f"\n - {a}"
-
                 if sym in LAST_MSG_ID:
-                    caption += f"\n🔗 قبلی: https://t.me/c/{chat_id}/{LAST_MSG_ID[sym]}"
-
+                    caption += f"\n🔗 نمودار قبلی: https://t.me/c/{chat_id}/{LAST_MSG_ID[sym]}"
                 try:
                     with open(info["png_path"], "rb") as f:
                         msg = bot.send_photo(chat_id, f, caption=caption)
                     LAST_MSG_ID[sym] = msg.message_id
-                except:
-                    pass
+                except Exception as e:
+                    debug_mark(bot, chat_id, 906, f"cycle_send_chart_{group}_{e}")
 
             if pdf is not None and info["png_path"]:
                 try:
@@ -952,8 +1173,8 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
                     ax_pdf.axis("off")
                     pdf.savefig(fig_pdf)
                     plt.close(fig_pdf)
-                except:
-                    pass
+                except Exception as e:
+                    debug_mark(bot, chat_id, 907, f"pdf_add_{group}_{e}")
 
             time.sleep(0.3)
 
@@ -961,81 +1182,262 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
             try:
                 pdf.close()
                 with open(pdf_filename, "rb") as f:
-                    bot.send_document(chat_id, f, caption=f"PDF کامل سیکل {group}")
-            except:
+                    bot.send_document(chat_id, f, caption=f"گزارش PDF کامل سیکل {group}")
+            except Exception as e:
+                debug_mark(bot, chat_id, 908, f"pdf_send_{group}_{e}")
                 bot.send_message(chat_id, f"⚠️ ارسال PDF {group} با خطا مواجه شد.")
 
         return all_images, alarm_images, alarms_count, cycle_time, cycle_items
 
     finally:
         lock.release()
-        bot.send_message(chat_id, f"✅ پایان اجرای سیکل {group} در {cycle_time}")
+        try:
+            bot.send_message(chat_id, f"✅ پایان اجرای چرخه {group} در {cycle_time}")
+        except:
+            pass
 
 def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str,
               lookback_days: int, max_bars: int, make_pdf: bool):
 
     cfg = load_config()
-
-    if not cfg.get(f"enable_{group}", True):
-        return
+    if group == "1h"  and not cfg.get("enable_1h",  True): return
+    if group == "4h"  and not cfg.get("enable_4h",  True): return
+    if group == "1d"  and not cfg.get("enable_1d",  True): return
+    if group == "15m" and not cfg.get("enable_15m", True): return
 
     all_images, alarm_images, alarms_count, cycle_time, cycle_items = run_cycle_once(
         group, bot, chat_id, symbols, interval, lookback_days, max_bars, make_pdf
     )
-
     store_cycle_alarms(group, cycle_time, cycle_items)
 
     if cfg.get("make_combined_all", True):
         make_combined_pages(group, bot, chat_id, all_images)
 
+    total_symbols      = len(list(dict.fromkeys(symbols)))
+    alarm_symbols      = len(cycle_items)
+    total_alarms       = alarms_count
     summary = (
         f"📊 خلاصهٔ سیکل {group}\n"
-        f"🕒 زمان: {cycle_time}\n"
-        f"🔢 نمادها: {len(symbols)}\n"
-        f"🔔 نمادهای آلارم‌دار: {len(cycle_items)}\n"
-        f"📣 تعداد کل آلارم‌ها: {alarms_count}"
+        f"🕒 زمان سیکل (محلی +۳:۳۰): {cycle_time}\n"
+        f"🔢 تعداد نمادها: {total_symbols}\n"
+        f"🔔 نمادهای آلارم‌دار: {alarm_symbols}\n"
+        f"📣 تعداد کل آلارم‌ها: {total_alarms}"
     )
-    bot.send_message(chat_id, summary)
+    try:
+        bot.send_message(chat_id, summary)
+    except Exception as e:
+        debug_mark(bot, chat_id, 909, f"cycle_summary_send_{group}_{e}")
 
     if alarm_images:
         make_alarm_combined_pages(group, bot, chat_id, alarm_images)
 
-@bot_1h.message_handler(func=lambda m: m.text == "📸 عکس ۱۲تایی 1h")
-def quick_1h(m):
-    threading.Thread(target=lambda: quick_combined("1h", bot_1h, m.chat.id), daemon=True).start()
+@bot_1h.message_handler(func=lambda m: m.text == "🔵 اجرای دستی 1h")
+def manual_1h(m):
+    cfg = load_config()
+    if not cfg.get("enable_1h", True):
+        bot_1h.send_message(m.chat.id, "ربات 1h غیرفعال است.")
+        return
+    threading.Thread(
+        target=lambda: run_cycle(
+            "1h",
+            bot_1h,
+            m.chat.id,
+            cfg["symbols_1h"],
+            "1h",
+            cfg["lookback_1h"],
+            cfg["max_bars"],
+            cfg["make_pdf_1h"]
+        ),
+        daemon=True
+    ).start()
 
-@bot_1h.message_handler(func=lambda m: m.text == "📸 عکس ۱۲تایی 4h")
-def quick_4h(m):
-    threading.Thread(target=lambda: quick_combined("4h", bot_4h or bot_1h, m.chat.id), daemon=True).start()
+@bot_1h.message_handler(func=lambda m: m.text == "🔵 اجرای فوری 4h")
+def manual_4h(m):
+    cfg = load_config()
+    if not cfg.get("enable_4h", True):
+        bot_1h.send_message(m.chat.id, "ربات 4h غیرفعال است.")
+        return
+    threading.Thread(
+        target=lambda: run_cycle(
+            "4h",
+            bot_4h or bot_1h,
+            m.chat.id,
+            cfg["symbols_4h"],
+            "4h",
+            cfg["lookback_4h"],
+            cfg["max_bars"],
+            False
+        ),
+        daemon=True
+    ).start()
 
-@bot_1h.message_handler(func=lambda m: m.text == "📸 عکس ۱۲تایی 1d")
-def quick_1d(m):
-    threading.Thread(target=lambda: quick_combined("1d", bot_1d or bot_1h, m.chat.id), daemon=True).start()
+@bot_1h.message_handler(func=lambda m: m.text == "🔵 اجرای فوری 1d")
+def manual_1d(m):
+    cfg = load_config()
+    if not cfg.get("enable_1d", True):
+        bot_1h.send_message(m.chat.id, "ربات 1d غیرفعال است.")
+        return
+    threading.Thread(
+        target=lambda: run_cycle(
+            "1d",
+            bot_1d or bot_1h,
+            m.chat.id,
+            cfg["symbols_1d"],
+            "1d",
+            cfg["lookback_1d"],
+            cfg["max_bars"],
+            cfg["make_pdf_1d"]
+        ),
+        daemon=True
+    ).start()
 
-@bot_1h.message_handler(func=lambda m: m.text == "📸 عکس ۱۲تایی 15m")
-def quick_15m(m):
-    threading.Thread(target=lambda: quick_combined("15m", bot_15m or bot_1h, m.chat.id), daemon=True).start()
+@bot_1h.message_handler(func=lambda m: m.text == "🔵 اجرای فوری 15m")
+def manual_15m(m):
+    cfg = load_config()
+    if not cfg.get("enable_15m", True):
+        bot_1h.send_message(m.chat.id, "ربات 15m غیرفعال است.")
+        return
+    threading.Thread(
+        target=lambda: run_cycle(
+            "15m",
+            bot_15m or bot_1h,
+            m.chat.id,
+            cfg["symbols_15m"],
+            "15m",
+            cfg["lookback_15m"],
+            cfg["max_bars"],
+            False
+        ),
+        daemon=True
+    ).start()
+
+@bot_1h.message_handler(func=lambda m: m.text == "🔵 اجرای چرخه‌ها")
+def run_all_cycles(m):
+    cfg = load_config()
+    bot_1h.send_message(m.chat.id, "اجرای همهٔ سیکل‌ها شروع شد.")
+    if cfg.get("enable_1h", True):
+        threading.Thread(
+            target=lambda: run_cycle(
+                "1h",
+                bot_1h,
+                m.chat.id,
+                cfg["symbols_1h"],
+                "1h",
+                cfg["lookback_1h"],
+                cfg["max_bars"],
+                cfg["make_pdf_1h"]
+            ),
+            daemon=True
+        ).start()
+    if cfg.get("enable_4h", True):
+        threading.Thread(
+            target=lambda: run_cycle(
+                "4h",
+                bot_4h or bot_1h,
+                m.chat.id,
+                cfg["symbols_4h"],
+                "4h",
+                cfg["lookback_4h"],
+                cfg["max_bars"],
+                False
+            ),
+            daemon=True
+        ).start()
+    if cfg.get("enable_1d", True):
+        threading.Thread(
+            target=lambda: run_cycle(
+                "1d",
+                bot_1d or bot_1h,
+                m.chat.id,
+                cfg["symbols_1d"],
+                "1d",
+                cfg["lookback_1d"],
+                cfg["max_bars"],
+                cfg["make_pdf_1d"]
+            ),
+            daemon=True
+        ).start()
+    if cfg.get("enable_15m", True):
+        threading.Thread(
+            target=lambda: run_cycle(
+                "15m",
+                bot_15m or bot_1h,
+                m.chat.id,
+                cfg["symbols_15m"],
+                "15m",
+                cfg["lookback_15m"],
+                cfg["max_bars"],
+                False
+            ),
+            daemon=True
+        ).start()
 
 def quick_combined(group: str, bot, chat_id: int):
     cfg = load_config()
     symbols = cfg[f"symbols_{group}"]
     interval = group
-    lookback = cfg[f"lookback_{group}"]
+    lookback = cfg[f"lookback_{group}"] if f"lookback_{group}" in cfg else 5
     max_bars = cfg["max_bars"]
-
-    bot.send_message(chat_id, f"📸 ساخت عکس تجمیعی فوری {group}...")
-
+    try:
+        bot.send_message(chat_id, f"📸 شروع ساخت عکس تجمیعی فوری {group}...")
+    except:
+        pass
     all_images, _, _, cycle_time, _ = run_cycle_once(
         group, bot, chat_id, symbols, interval, lookback, max_bars, False
     )
-
     if not all_images:
-        bot.send_message(chat_id, f"⚠️ عکس ساخته نشد.")
+        try:
+            bot.send_message(chat_id, f"⚠️ برای {group} عکس ساخته نشد یا سیکل در حال اجرا بود.")
+        except:
+            pass
         return
-
     make_combined_pages(group, bot, chat_id, all_images)
+    try:
+        bot.send_message(chat_id, f"✅ عکس‌های تجمیعی فوری {group} بر اساس اجرای در زمان {cycle_time} ارسال شد.")
+    except:
+        pass
 
-    bot.send_message(chat_id, f"✅ عکس‌های تجمیعی فوری {group} ارسال شد.")
+@bot_1h.message_handler(func=lambda m: m.text == "📸 عکس ۱۲تایی 1h")
+def quick_1h(m):
+    threading.Thread(
+        target=lambda: quick_combined("1h", bot_1h, m.chat.id),
+        daemon=True
+    ).start()
+
+@bot_1h.message_handler(func=lambda m: m.text == "📸 عکس ۱۲تایی 4h")
+def quick_4h(m):
+    threading.Thread(
+        target=lambda: quick_combined("4h", bot_4h or bot_1h, m.chat.id),
+        daemon=True
+    ).start()
+
+@bot_1h.message_handler(func=lambda m: m.text == "📸 عکس ۱۲تایی 1d")
+def quick_1d(m):
+    threading.Thread(
+        target=lambda: quick_combined("1d", bot_1d or bot_1h, m.chat.id),
+        daemon=True
+    ).start()
+
+@bot_1h.message_handler(func=lambda m: m.text == "📸 عکس ۱۲تایی 15m")
+def quick_15m(m):
+    threading.Thread(
+        target=lambda: quick_combined("15m", bot_15m or bot_1h, m.chat.id),
+        daemon=True
+    ).start()
+
+@bot_1h.message_handler(func=lambda m: m.text == "🔴 وضعیت چرخه‌ها")
+def cycles_status(m):
+    txt = "وضعیت چرخه‌ها (زمان‌ها بر اساس آفست +۳:۳۰):\n"
+    for g in ["1h","4h","1d","15m"]:
+        lk = CYCLE_LOCKS[g]
+        locked = lk.lock.locked()
+        last   = lk.last_acquire
+        if last:
+            last_local = (last + dt.timedelta(hours=3, minutes=30)).strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            last_local = "None"
+        txt += f"- {g}: locked={locked}, last_acquire={last_local}\n"
+    bot_1h.send_message(m.chat.id, txt)
 
 def scheduler_loop():
     while True:
@@ -1046,64 +1448,94 @@ def scheduler_loop():
             cfg = load_config()
 
             if minute == 22 and cfg.get("enable_1h", True) and cfg.get("chat_id_1h"):
-                threading.Thread(target=lambda: run_cycle(
-                    "1h", bot_1h, cfg["chat_id_1h"],
-                    cfg["symbols_1h"], "1h",
-                    cfg["lookback_1h"], cfg["max_bars"],
-                    cfg["make_pdf_1h"]
-                ), daemon=True).start()
+                threading.Thread(
+                    target=lambda: run_cycle(
+                        "1h",
+                        bot_1h,
+                        cfg["chat_id_1h"],
+                        cfg["symbols_1h"],
+                        "1h",
+                        cfg["lookback_1h"],
+                        cfg["max_bars"],
+                        cfg["make_pdf_1h"]
+                    ),
+                    daemon=True
+                ).start()
 
             if minute == 7 and hour in [2,6,10,14,18,22] and cfg.get("enable_4h", True):
                 ch = cfg.get("chat_id_4h") or cfg.get("chat_id_1h")
                 if ch:
-                    threading.Thread(target=lambda: run_cycle(
-                        "4h", bot_4h or bot_1h, ch,
-                        cfg["symbols_4h"], "4h",
-                        cfg["lookback_4h"], cfg["max_bars"],
-                        False
-                    ), daemon=True).start()
+                    threading.Thread(
+                        target=lambda: run_cycle(
+                            "4h",
+                            bot_4h or bot_1h,
+                            ch,
+                            cfg["symbols_4h"],
+                            "4h",
+                            cfg["lookback_4h"],
+                            cfg["max_bars"],
+                            False
+                        ),
+                        daemon=True
+                    ).start()
 
             if hour == 1 and minute == 5 and cfg.get("enable_1d", True):
                 ch = cfg.get("chat_id_1d") or cfg.get("chat_id_1h")
                 if ch:
-                    threading.Thread(target=lambda: run_cycle(
-                        "1d", bot_1d or bot_1h, ch,
-                        cfg["symbols_1d"], "1d",
-                        cfg["lookback_1d"], cfg["max_bars"],
-                        cfg["make_pdf_1d"]
-                    ), daemon=True).start()
+                    threading.Thread(
+                        target=lambda: run_cycle(
+                            "1d",
+                            bot_1d or bot_1h,
+                            ch,
+                            cfg["symbols_1d"],
+                            "1d",
+                            cfg["lookback_1d"],
+                            cfg["max_bars"],
+                            cfg["make_pdf_1d"]
+                        ),
+                        daemon=True
+                    ).start()
 
             if minute % 15 == 0 and cfg.get("enable_15m", True):
                 ch = cfg.get("chat_id_15m") or cfg.get("chat_id_1h")
                 if ch:
-                    threading.Thread(target=lambda: run_cycle(
-                        "15m", bot_15m or bot_1h, ch,
-                        cfg["symbols_15m"], "15m",
-                        cfg["lookback_15m"], cfg["max_bars"],
-                        False
-                    ), daemon=True).start()
+                    threading.Thread(
+                        target=lambda: run_cycle(
+                            "15m",
+                            bot_15m or bot_1h,
+                            ch,
+                            cfg["symbols_15m"],
+                            "15m",
+                            cfg["lookback_15m"],
+                            cfg["max_bars"],
+                            False
+                        ),
+                        daemon=True
+                    ).start()
 
-        except:
-            pass
-
+        except Exception as e:
+            debug_mark(bot_1h, ADMIN_CHAT, 1201, f"scheduler_loop_{e}")
         time.sleep(60)
 
 def main():
     load_alarm_history()
     threading.Thread(target=scheduler_loop, daemon=True).start()
-
     if bot_1h:
         while True:
             try:
                 bot_1h.infinity_polling(timeout=60)
             except telebot.apihelper.ApiTelegramException as e:
                 err_code = getattr(e, "error_code", None)
+                debug_mark(bot_1h, ADMIN_CHAT, 1409, f"polling_error_{e}")
+                print("ApiTelegramException:", e)
                 if err_code == 409:
                     time.sleep(15)
                     continue
                 else:
                     break
-            except:
+            except Exception as e:
+                debug_mark(bot_1h, ADMIN_CHAT, 1410, f"polling_generic_{e}")
+                print("Polling crashed:", e)
                 time.sleep(15)
                 continue
     else:
