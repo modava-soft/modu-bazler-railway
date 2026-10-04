@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # Modu Bazler v7.9 – نسخهٔ یکپارچه اصلاح‌شده نهایی با تنظیم تعداد نمودار تجمیعی و جلوگیری از تداخل سیکل‌ها
+# چیدمان تصاویر تجمیعی بر اساس تعداد نمودار (۲، ۴، ۶، ...) و فیت شدن در صفحه
 
 import os, json, time, threading, datetime as dt
 import requests, numpy as np, pandas as pd
@@ -221,16 +222,20 @@ def force_clear_all_locks():
         lk.force_release()
 
 HELP_TEXT = """
-Modu Bazler v7.9 – راهنما:
+Modu Bazler v7.9 – راهنما کامل:
 
-- چک یک نماد
+- چک یک نماد (نمایش نمودار 1h با آلارم‌ها و لینک نمودار قبلی)
 - اجرای دستی 1h / فوری 4h / فوری 1d / فوری 15m
-- اجرای چرخه‌ها (همهٔ تایم‌فریم‌ها)
-- عکس تجمیعی (تعداد نمودار قابل تنظیم، مضربی از ۲)
-- مدیریت نمادها
+- اجرای چرخه‌ها (همهٔ تایم‌فریم‌ها با جلوگیری از تداخل سیکل‌ها – اگر سیکل در حال اجرا باشد، سیکل جدید اجرا نمی‌شود)
+- عکس تجمیعی (تعداد نمودار قابل تنظیم، مضربی از ۲؛ چیدمان خودکار:
+  • ۲ نمودار: صفحه به دو قسمت افقی (بالا/پایین)
+  • ۴ نمودار: ۲×۲
+  • ۶ نمودار: ۳×۲
+  • برای تعداد بیشتر، در ۲ ستون و چند ردیف تا فیت شدن در صفحه)
+- مدیریت نمادها (افزودن/حذف/نمایش نمادهای فعال در هر تایم‌فریم)
 - تنظیم آلارم‌ها و گزارش آلارم‌ها (با فلش رنگی برای آخرین آلارم‌ها)
 - تنظیمات پیشرفته (PDF، Combined، نمایش نمودار آلارم‌دار، عکس تجمیعی آلارم‌ها، تعداد نمودار در هر صفحه)
-- وضعیت سیستم و وضعیت چرخه‌ها
+- وضعیت سیستم و وضعیت چرخه‌ها (نمایش وضعیت قفل‌ها و زمان آخرین اجرا)
 - ریست برنامه و رفع خطای قفل‌ها
 
 زمان‌ها بر اساس زمان محلی +۳:۳۰:
@@ -311,19 +316,6 @@ def show_symbol_menu(chat_id, group):
 @bot_1h.message_handler(func=lambda m: m.text == "🟢 مدیریت نمادهای 1h")
 def manage_1h(m):
     show_symbol_menu(m.chat.id, "1h")
-
-@bot_1h.message_handler(func=lambda m: m.text == "🟢 مدیریت نمادهای 4h")
-def manage_4h(m):
-    show_symbol_menu(m.chat.id, "4h")
-
-@bot_1h.message_handler(func=lambda m: m.text == "🟢 مدیریت نمادهای 1d")
-def manage_1d(m):
-    show_symbol_menu(m.chat.id, "1d")
-
-@bot_1h.message_handler(func=lambda m: m.text == "🟢 مدیریت نمادهای 15m")
-def manage_15m(m):
-    show_symbol_menu(m.chat.id, "15m")
-
 @bot_1h.message_handler(func=lambda m: m.text == "🟡 تنظیم آلارم‌ها")
 def alarm_settings(m):
     cfg = load_config()
@@ -573,6 +565,19 @@ def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars
         "sma200":    df["SMA200"].tolist()     if "SMA200"     in df.columns else []
     }
 
+
+@bot_1h.message_handler(func=lambda m: m.text == "🟢 مدیریت نمادهای 4h")
+def manage_4h(m):
+    show_symbol_menu(m.chat.id, "4h")
+
+@bot_1h.message_handler(func=lambda m: m.text == "🟢 مدیریت نمادهای 1d")
+def manage_1d(m):
+    show_symbol_menu(m.chat.id, "1d")
+
+@bot_1h.message_handler(func=lambda m: m.text == "🟢 مدیریت نمادهای 15m")
+def manage_15m(m):
+    show_symbol_menu(m.chat.id, "15m")
+
 def detect_alarms(cfg: dict, info: dict, group: str, cycle_time: str, cycle_items: list):
     alarms = []
     wma    = info["wma"]
@@ -727,7 +732,6 @@ def system_status(m):
     txt += f"enable_15m: {'ON' if cfg.get('enable_15m', True) else 'OFF'}\n"
     txt += f"lock_timeout_sec: {cfg.get('lock_timeout_sec', 600)}\n"
     bot_1h.send_message(m.chat.id, txt)
-
 
 def send_advanced_menu(chat_id):
     cfg = load_config()
@@ -924,6 +928,17 @@ def adv_reset_app(m):
     bot_1h.send_message(m.chat.id, "ریست کامل انجام شد.")
     send_advanced_menu(m.chat.id)
 
+def _grid_for_count(n: int):
+    if n <= 0:
+        return 1, 1
+    if n == 2:
+        # دو تصویر: بالا/پایین
+        return 2, 1
+    # برای ۴، ۶، ۸، ... : دو ستون و چند ردیف
+    cols = 2
+    rows = (n + cols - 1) // cols
+    return rows, cols
+
 def make_combined_pages(group: str, bot, chat_id: int, image_paths):
     cfg = load_config()
     page_size = cfg.get("combined_page_size", 6)
@@ -935,32 +950,17 @@ def make_combined_pages(group: str, bot, chat_id: int, image_paths):
         pass
 
     pages = []
-    page  = []
-    for img in image_paths:
-        if img is None:
-            continue
-        if not os.path.exists(img):
-            continue
-        page.append(img)
-        if len(page) == page_size:
-            pages.append(page)
-            page = []
-    if page:
-        pages.append(page)
-
-    for idx, pg in enumerate(pages, start=1):
-        fig, axes = plt.subplots(3, 4, figsize=(16, 12))
-        axes = axes.flatten()
-        for ax, img_path in zip(axes, pg):
-            try:
-                im = Image.open(img_path)
-                im = im.resize((800, 500))
-                ax.imshow(im)
+    page  =(img)
+        if, pg in enumerate(pages, start=1):
+        count = len(pg)
+        rows, cols = _grid_for_count(count)
+       .subplots(rows, cols, figsize=(16, 9))
+        if isinstance in zip(axes, pg ax.imshow(im)
                 ax.axis("off")
             except Exception as e:
                 ax.text(0.5, 0.5, "خطا در عکس", ha="center")
                 debug_mark(bot, chat_id, 930, f"combined_read_{group}_{e}")
-        for ax in axes[len(pg):]:
+        for ax in axes[count:]:
             ax.axis("off")
         out_path = os.path.join(CHARTS_DIR, f"combined_{group}_{idx}.jpg")
         plt.tight_layout()
@@ -1004,8 +1004,13 @@ def make_alarm_combined_pages(group: str, bot, chat_id: int, alarm_images):
         pages.append(page)
 
     for idx, pg in enumerate(pages, start=1):
-        fig, axes = plt.subplots(3, 4, figsize=(16, 12))
-        axes = axes.flatten()
+        count = len(pg)
+        rows, cols = _grid_for_count(count)
+        fig, axes = plt.subplots(rows, cols, figsize=(16, 9))
+        if isinstance(axes, np.ndarray):
+            axes = axes.flatten()
+        else:
+            axes = [axes]
         for ax, img_path in zip(axes, pg):
             try:
                 im = Image.open(img_path)
@@ -1015,7 +1020,7 @@ def make_alarm_combined_pages(group: str, bot, chat_id: int, alarm_images):
             except Exception as e:
                 ax.text(0.5, 0.5, "خطا در عکس", ha="center")
                 debug_mark(bot, chat_id, 940, f"alarm_combined_read_{group}_{e}")
-        for ax in axes[len(pg):]:
+        for ax in axes[count:]:
             ax.axis("off")
         out_path = os.path.join(CHARTS_DIR, f"alarm_combined_{group}_{idx}.jpg")
         plt.tight_layout()
@@ -1047,6 +1052,7 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
     cycle_time  = now_local_str()
     cycle_items = []
 
+    # جلوگیری از تداخل سیکل‌ها: اگر قفل مشغول باشد، سیکل جدید اجرا نمی‌شود
     if not lock.acquire(blocking=False):
         try:
             bot.send_message(
