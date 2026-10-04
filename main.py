@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Modu Bazler v8.1 – نسخهٔ کامل با چیدمان هوشمند تصاویر و جلوگیری از تداخل سیکل‌ها
+# Modu Bazler v8.2 – نسخهٔ کامل با چیدمان هوشمند تصاویر و جلوگیری از تداخل سیکل‌ها
 
 import os, json, time, threading, datetime as dt
 import requests, numpy as np, pandas as pd
@@ -108,48 +108,6 @@ def now_local():
 def now_local_str():
     return now_local().strftime("%Y-%m-%d %H:%M:%S")
 
-def save_config(cfg: dict):
-    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
-
-def load_config() -> dict:
-    if not os.path.exists(CONFIG_PATH):
-        save_config(DEFAULT_CONFIG)
-        return DEFAULT_CONFIG.copy()
-    try:
-        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-            cfg = json.load(f)
-        if "combined_page_size" not in cfg:
-            cfg["combined_page_size"] = DEFAULT_CONFIG["combined_page_size"]
-        return cfg
-    except:
-        return DEFAULT_CONFIG.copy()
-
-def reset_config():
-    cfg = DEFAULT_CONFIG.copy()
-    save_config(cfg)
-    return cfg
-
-def save_alarm_history():
-    try:
-        with open(ALARM_HISTORY_PATH, "w", encoding="utf-8") as f:
-            json.dump(ALARM_HISTORY, f, ensure_ascii=False, indent=2)
-    except:
-        pass
-
-def load_alarm_history():
-    global ALARM_HISTORY
-    if not os.path.exists(ALARM_HISTORY_PATH):
-        save_alarm_history()
-        return
-    try:
-        with open(ALARM_HISTORY_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        for g in ["1h","4h","1d","15m"]:
-            ALARM_HISTORY[g] = data.get(g, [])
-    except:
-        pass
-
 def create_bot(token: str):
     if not token or not isinstance(token, str):
         return None
@@ -210,7 +168,7 @@ def force_clear_all_locks():
         CYCLE_LOCKS[g].force_release()
 
 HELP_TEXT = """
-Modu Bazler v8.1 – راهنما:
+Modu Bazler v8.2 – راهنما:
 
 - چک یک نماد
 - اجرای دستی و فوری برای 1h / 4h / 1d / 15m
@@ -238,6 +196,48 @@ def send_main_menu(chat_id):
     kb.row("🔴 ریست برنامه", "🔴 رفع خطای قفل‌ها")
     kb.row("🟣 راهنما", "🟣 رفرش منو")
     bot_1h.send_message(chat_id, "منوی اصلی:", reply_markup=kb)
+
+def save_config(cfg: dict):
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, ensure_ascii=False, indent=2)
+
+def load_config() -> dict:
+    if not os.path.exists(CONFIG_PATH):
+        save_config(DEFAULT_CONFIG)
+        return DEFAULT_CONFIG.copy()
+    try:
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+        if "combined_page_size" not in cfg:
+            cfg["combined_page_size"] = DEFAULT_CONFIG["combined_page_size"]
+        return cfg
+    except:
+        return DEFAULT_CONFIG.copy()
+
+def reset_config():
+    cfg = DEFAULT_CONFIG.copy()
+    save_config(cfg)
+    return cfg
+
+def save_alarm_history():
+    try:
+        with open(ALARM_HISTORY_PATH, "w", encoding="utf-8") as f:
+            json.dump(ALARM_HISTORY, f, ensure_ascii=False, indent=2)
+    except:
+        pass
+
+def load_alarm_history():
+    global ALARM_HISTORY
+    if not os.path.exists(ALARM_HISTORY_PATH):
+        save_alarm_history()
+        return
+    try:
+        with open(ALARM_HISTORY_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        for g in ["1h","4h","1d","15m"]:
+            ALARM_HISTORY[g] = data.get(g, [])
+    except:
+        pass
 
 @bot_1h.message_handler(commands=["start"])
 def start_main(m):
@@ -272,6 +272,98 @@ def help_menu(m):
 
 @bot_1h.message_handler(func=lambda m: m.text == "بازگشت به منوی اصلی")
 def back_to_main(m):
+    send_main_menu(m.chat.id)
+
+# ---------------- مدیریت نمادها ----------------
+
+def manage_symbols_menu(m, group: str):
+    cfg = load_config()
+    symbols = cfg[f"symbols_{group}"]
+    txt = f"مدیریت نمادهای {group}:\nتعداد: {len(symbols)}\n\n"
+    txt += "نمادها (چندتای اول):\n"
+    txt += ", ".join(symbols[:20]) + (" ..." if len(symbols) > 20 else "")
+    txt += "\n\nبرای افزودن/حذف:\n"
+    txt += "افزودن: +BTCUSDT\nحذف: -BTCUSDT\n"
+    txt += "برای جایگزینی کامل لیست: لیست را با کاما بفرست.\n"
+    msg = bot_1h.send_message(m.chat.id, txt)
+    bot_1h.register_next_step_handler(msg, lambda mm: manage_symbols_edit(mm, group))
+
+def manage_symbols_edit(m, group: str):
+    cfg = load_config()
+    text = m.text.strip().upper()
+    symbols = cfg[f"symbols_{group}"]
+
+    if text.startswith("+"):
+        sym = text[1:].strip()
+        if sym and sym not in symbols:
+            symbols.append(sym)
+    elif text.startswith("-"):
+        sym = text[1:].strip()
+        symbols = [s for s in symbols if s != sym]
+    else:
+        parts = [p.strip() for p in text.split(",") if p.strip()]
+        if parts:
+            symbols = parts
+
+    cfg[f"symbols_{group}"] = symbols
+    save_config(cfg)
+    bot_1h.send_message(m.chat.id, f"نمادهای {group} به‌روزرسانی شد. تعداد: {len(symbols)}")
+    send_main_menu(m.chat.id)
+
+@bot_1h.message_handler(func=lambda m: m.text == "🟢 مدیریت نمادهای 1h")
+def manage_1h(m):
+    manage_symbols_menu(m, "1h")
+
+@bot_1h.message_handler(func=lambda m: m.text == "🟢 مدیریت نمادهای 4h")
+def manage_4h(m):
+    manage_symbols_menu(m, "4h")
+
+@bot_1h.message_handler(func=lambda m: m.text == "🟢 مدیریت نمادهای 1d")
+def manage_1d(m):
+    manage_symbols_menu(m, "1d")
+
+@bot_1h.message_handler(func=lambda m: m.text == "🟢 مدیریت نمادهای 15m")
+def manage_15m(m):
+    manage_symbols_menu(m, "15m")
+
+# ---------------- تنظیمات پیشرفته ----------------
+
+@bot_1h.message_handler(func=lambda m: m.text == "🔴 تنظیمات پیشرفته")
+def advanced_settings(m):
+    cfg = load_config()
+    txt = "تنظیمات پیشرفته:\n\n"
+    txt += f"bars_per_chart: {cfg.get('bars_per_chart', 90)}\n"
+    txt += f"combined_page_size: {cfg.get('combined_page_size', 12)}\n"
+    txt += f"make_pdf_1h: {'ON' if cfg['make_pdf_1h'] else 'OFF'}\n"
+    txt += f"make_pdf_1d: {'ON' if cfg['make_pdf_1d'] else 'OFF'}\n"
+    txt += f"make_combined_all: {'ON' if cfg.get('make_combined_all', True) else 'OFF'}\n"
+    txt += f"show_alarm_charts: {'ON' if cfg.get('show_alarm_charts', True) else 'OFF'}\n"
+    txt += "\nبرای تغییر:\n"
+    txt += "مثال‌ها:\n"
+    txt += "bars_per_chart=120\ncombined_page_size=6\nmake_pdf_1h=ON\nmake_combined_all=OFF\n"
+    msg = bot_1h.send_message(m.chat.id, txt)
+    bot_1h.register_next_step_handler(msg, advanced_settings_edit)
+
+def advanced_settings_edit(m):
+    cfg = load_config()
+    text = m.text.strip()
+    lines = [l.strip() for l in text.split("\n") if l.strip()]
+    for line in lines:
+        if "=" not in line:
+            continue
+        key, val = [x.strip() for x in line.split("=", 1)]
+        if key in ["bars_per_chart", "combined_page_size"]:
+            try:
+                cfg[key] = int(val)
+            except:
+                pass
+        elif key in ["make_pdf_1h","make_pdf_1d","make_combined_all","show_alarm_charts",
+                     "make_alarm_combined","alarm_combined_message",
+                     "enable_1h","enable_4h","enable_1d","enable_15m",
+                     "verbose_1h","verbose_4h","verbose_1d","verbose_15m"]:
+            cfg[key] = (val.upper() == "ON")
+    save_config(cfg)
+    bot_1h.send_message(m.chat.id, "تنظیمات پیشرفته به‌روزرسانی شد.")
     send_main_menu(m.chat.id)
 
 def _binance_interval(i: str) -> str:
@@ -447,15 +539,8 @@ def get_layout_for_page_size(n):
     rows = (n + cols - 1) // cols
     return (cols, rows)
 
-def make_combined_pages(group: str, bot, chat_id: int, image_paths):
-    cfg = load_config()
-    page_size = cfg.get("combined_page_size", 12)
-
-    if not image_paths:
-        return
-
-    pages = []
-    page  = []
+def _make_pages(image_paths, page_size):
+    pages, page = [], []
     for img in image_paths:
         if img and os.path.exists(img):
             page.append(img)
@@ -464,6 +549,15 @@ def make_combined_pages(group: str, bot, chat_id: int, image_paths):
                 page = []
     if page:
         pages.append(page)
+    return pages
+
+def make_combined_pages(group: str, bot, chat_id: int, image_paths):
+    cfg = load_config()
+    page_size = cfg.get("combined_page_size", 12)
+    if not image_paths:
+        return
+
+    pages = _make_pages(image_paths, page_size)
 
     for idx, pg in enumerate(pages, start=1):
         cols, rows = get_layout_for_page_size(len(pg))
@@ -498,16 +592,7 @@ def make_alarm_combined_pages(group: str, bot, chat_id: int, image_paths):
         return
 
     page_size = cfg.get("combined_page_size", 12)
-    pages = []
-    page  = []
-    for img in image_paths:
-        if img and os.path.exists(img):
-            page.append(img)
-            if len(page) == page_size:
-                pages.append(page)
-                page = []
-    if page:
-        pages.append(page)
+    pages = _make_pages(image_paths, page_size)
 
     for idx, pg in enumerate(pages, start=1):
         cols, rows = get_layout_for_page_size(len(pg))
@@ -538,10 +623,6 @@ def make_alarm_combined_pages(group: str, bot, chat_id: int, image_paths):
         with open(out_path, "rb") as f:
             bot.send_photo(chat_id, f, caption=caption)
 
-
-# ============================
-#   آلارم‌ها و گزارش‌ها
-# ============================
 
 def detect_alarms(cfg: dict, info: dict, group: str, cycle_time: str, cycle_items: list):
     alarms = []
@@ -599,7 +680,6 @@ def detect_alarms(cfg: dict, info: dict, group: str, cycle_time: str, cycle_item
 
     return alarms
 
-
 def store_cycle_alarms(group: str, cycle_time: str, cycle_items: list):
     if not cycle_items:
         return
@@ -610,7 +690,6 @@ def store_cycle_alarms(group: str, cycle_time: str, cycle_items: list):
     if len(ALARM_HISTORY[group]) > 19:
         ALARM_HISTORY[group] = ALARM_HISTORY[group][-19:]
     save_alarm_history()
-
 
 @bot_1h.message_handler(func=lambda m: m.text == "🟡 گزارش آلارم‌ها")
 def alarms_report(m):
@@ -640,11 +719,6 @@ def alarms_report(m):
             txt += "\n"
 
     bot_1h.send_message(m.chat.id, txt)
-
-
-# ============================
-#   چک یک نماد
-# ============================
 
 @bot_1h.message_handler(func=lambda m: m.text == "🔵 چک یک نماد")
 def check_one_symbol(m):
@@ -687,11 +761,6 @@ def do_check_one_symbol(m):
     else:
         bot_1h.send_message(m.chat.id, caption + "\n⚠️ عکس ساخته نشد.")
 
-
-# ============================
-#   وضعیت سیستم
-# ============================
-
 @bot_1h.message_handler(func=lambda m: m.text == "🔴 وضعیت سیستم")
 def system_status(m):
     cfg = load_config()
@@ -717,13 +786,7 @@ def system_status(m):
     txt += f"enable 1d: {'ON' if cfg.get('enable_1d', True) else 'OFF'}\n"
     txt += f"enable 15m: {'ON' if cfg.get('enable_15m', True) else 'OFF'}\n"
     txt += f"lock_timeout_sec: {cfg.get('lock_timeout_sec', 600)}\n"
-
     bot_1h.send_message(m.chat.id, txt)
-
-
-# ============================
-#   وضعیت چرخه‌ها
-# ============================
 
 @bot_1h.message_handler(func=lambda m: m.text == "🔴 وضعیت چرخه‌ها")
 def cycles_status(m):
@@ -739,9 +802,6 @@ def cycles_status(m):
         txt += f"- {g}: locked={locked}, last={last_local}\n"
     bot_1h.send_message(m.chat.id, txt)
 
-# ============================
-#   اجرای یک سیکل (با قفل)
-# ============================
 
 def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
                    lookback_days: int, max_bars: int, make_pdf: bool):
@@ -871,7 +931,6 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
         lock.release()
         bot.send_message(chat_id, f"✅ پایان اجرای چرخه {group} در {cycle_time}")
 
-
 def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str,
               lookback_days: int, max_bars: int, make_pdf: bool):
 
@@ -902,11 +961,6 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str,
 
     if alarm_images:
         make_alarm_combined_pages(group, bot, chat_id, alarm_images)
-
-
-# ============================
-#   اجرای دستی سیکل‌ها
-# ============================
 
 @bot_1h.message_handler(func=lambda m: m.text == "🔵 اجرای دستی 1h")
 def manual_1h(m):
@@ -960,11 +1014,6 @@ def manual_15m(m):
         daemon=True
     ).start()
 
-
-# ============================
-#   اجرای همهٔ سیکل‌ها
-# ============================
-
 @bot_1h.message_handler(func=lambda m: m.text == "🔵 اجرای چرخه‌ها")
 def run_all_cycles(m):
     cfg = load_config()
@@ -1014,11 +1063,6 @@ def run_all_cycles(m):
             daemon=True
         ).start()
 
-
-# ============================
-#   عکس تجمیعی فوری
-# ============================
-
 def quick_combined(group: str, bot, chat_id: int):
     cfg = load_config()
     symbols = cfg[f"symbols_{group}"]
@@ -1039,7 +1083,6 @@ def quick_combined(group: str, bot, chat_id: int):
     make_combined_pages(group, bot, chat_id, all_images)
 
     bot.send_message(chat_id, f"✅ عکس‌های تجمیعی فوری {group} ارسال شد.")
-
 
 @bot_1h.message_handler(func=lambda m: m.text == "📸 عکس تجمیعی 1h")
 def quick_1h(m):
@@ -1068,12 +1111,6 @@ def quick_15m(m):
         target=lambda: quick_combined("15m", bot_15m or bot_1h, m.chat.id),
         daemon=True
     ).start()
-
-
-# ============================
-#   زمان‌بندی خودکار
-# ============================
-
 def scheduler_loop():
     while True:
         try:
@@ -1137,11 +1174,6 @@ def scheduler_loop():
 
         time.sleep(60)
 
-
-# ============================
-#   main()
-# ============================
-
 def main():
     load_alarm_history()
     threading.Thread(target=scheduler_loop, daemon=True).start()
@@ -1162,7 +1194,6 @@ def main():
                 continue
     else:
         print("توکن ربات 1h تنظیم نشده است.")
-
 
 if __name__ == "__main__":
     main()
