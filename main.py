@@ -5,6 +5,9 @@
 # 2) تنظیمات پیشرفته: گزینهٔ غیرفعال‌کردن ارسال نمودار برای ارزهای آلارم‌دار (فقط نام و متن آلارم)
 # 3) تنظیمات پیشرفته: فعال/غیرفعال‌کردن عکس تجمیعی ۱۲تایی آلارم‌ها + پیام همراه آن
 # 4) بررسی و اصلاح کد عکس‌های ۱۲تایی (همهٔ نمودارها و فقط آلارم‌دارها)
+# 5) کلیدهای فوری ساخت عکس ۱۲تایی برای هر ربات جداگانه
+# 6) در گزارش آلارم‌ها، ارزهای آخرین آلارم با فلش رنگی مشخص می‌شوند
+# 7) جلوگیری از اجرای هم‌زمان سیکل‌ها و ارسال پیام وضعیت در صورت تداخل
 
 import os, json, time, threading, datetime as dt
 import requests, numpy as np, pandas as pd
@@ -93,7 +96,7 @@ DEFAULT_CONFIG = {
     "enable_15m":  True,
 
     # ارتقاها:
-    "show_alarm_charts":      True,  # اگر False باشد، برای ارزهای آلارم‌دار نمودار ارسال نمی‌شود، فقط متن آلارم
+    "show_alarm_charts":      True,  # اگر False باشد، برای ارزهای آلارم‌دار نمودار ارسال نمی‌شود، فقط نام و متن آلارم
     "make_alarm_combined":    True,  # عکس تجمیعی ۱۲تایی مخصوص آلارم‌ها
     "alarm_combined_message": True,  # پیام همراه ارسال عکس تجمیعی آلارم‌ها
 }
@@ -261,6 +264,7 @@ HELP_TEXT = """
 - چک یک نماد
 - اجرای دستی 1h / فوری 4h / فوری 1d / فوری 15m
 - اجرای چرخه‌ها (همهٔ تایم‌فریم‌ها)
+- 📸 عکس ۱۲تایی 1h / 4h / 1d / 15m
 
 🟢 مدیریت نمادها:
 - مدیریت نمادهای 1h / 4h / 1d / 15m
@@ -269,6 +273,7 @@ HELP_TEXT = """
 🟡 آلارم‌ها:
 - تنظیم آلارم‌ها (WMA و SMA)
 - گزارش آلارم‌ها (تاریخچه تا ۱۹ سیکل آخر هر گروه، با زمان محلی +۳:۳۰)
+- ارزهای آخرین آلارم با فلش رنگی 🔺 مشخص می‌شوند
 
 🔴 تنظیمات و وضعیت:
 - وضعیت سیستم
@@ -299,6 +304,8 @@ def send_main_menu(chat_id):
     kb.row("🔵 چک یک نماد", "🔵 اجرای دستی 1h")
     kb.row("🔵 اجرای فوری 4h", "🔵 اجرای فوری 1d")
     kb.row("🔵 اجرای فوری 15m")
+    kb.row("📸 عکس ۱۲تایی 1h", "📸 عکس ۱۲تایی 4h")
+    kb.row("📸 عکس ۱۲تایی 1d", "📸 عکس ۱۲تایی 15m")
     kb.row("🟢 مدیریت نمادهای 1h", "🟢 مدیریت نمادهای 4h")
     kb.row("🟢 مدیریت نمادهای 1d", "🟢 مدیریت نمادهای 15m")
     kb.row("🟡 تنظیم آلارم‌ها", "🟡 گزارش آلارم‌ها")
@@ -339,7 +346,6 @@ def clear_locks_cmd(m):
 def help_menu(m):
     bot_1h.send_message(m.chat.id, HELP_TEXT)
 
-# کلید بازگشت به منوی اصلی (در همهٔ منوها)
 @bot_1h.message_handler(func=lambda m: m.text == "بازگشت به منوی اصلی")
 def back_to_main(m):
     send_main_menu(m.chat.id)
@@ -770,7 +776,7 @@ def store_cycle_alarms(group: str, cycle_time: str, cycle_items: list):
     save_alarm_history()
 
 # =========================
-# گزارش آلارم‌ها
+# گزارش آلارم‌ها (با فلش رنگی برای آخرین آلارم‌ها)
 # =========================
 
 @bot_1h.message_handler(func=lambda m: m.text == "🟡 گزارش آلارم‌ها")
@@ -786,10 +792,16 @@ def alarms_report(m):
             txt += "  هنوز آلارمی ثبت نشده است.\n\n"
             continue
 
+        # نمادهای آخرین سیکل برای فلش رنگی
+        last_cycle = history[-1]
+        last_symbols = {item["symbol"] for item in last_cycle["items"]}
+
         for idx, cycle in enumerate(history[::-1], start=1):
             txt += f"  🕒 سیکل #{idx} در زمان: {cycle['cycle_time']}\n"
             for item in cycle["items"]:
-                txt += f"    • {item['symbol']} ({item['interval']}):\n"
+                sym = item["symbol"]
+                arrow = " 🔺" if sym in last_symbols else ""
+                txt += f"    • {sym}{arrow} ({item['interval']}):\n"
                 for a in item["alarms"]:
                     txt += f"      - {a}\n"
                 txt += f"      زمان آلارم: {item['time']}\n"
@@ -1177,6 +1189,10 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
 
     if not lock.acquire(blocking=False):
         debug_mark(bot, chat_id, 902, f"run_cycle_lock_busy_{group}")
+        try:
+            bot.send_message(chat_id, f"⚠️ چرخه {group} در حال اجراست، اجرای جدید انجام نشد.")
+        except:
+            pass
         return [], [], 0, cycle_time, cycle_items
 
     pdf          = None
@@ -1230,10 +1246,8 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
                 if alarms:
                     send_this_chart = True
 
-            # اگر show_alarm_charts خاموش باشد، برای ارزهای آلارم‌دار نمودار ارسال نمی‌شود
             if alarms and not cfg.get("show_alarm_charts", True):
                 send_this_chart = False
-                # فقط متن آلارم برای این نماد ارسال شود
                 try:
                     txt = f"{sym} ({group}) – آلارم‌ها:\n"
                     for a in alarms:
@@ -1478,6 +1492,63 @@ def run_all_cycles(m):
             ),
             daemon=True
         ).start()
+
+# =========================
+# کلیدهای فوری عکس ۱۲تایی برای هر ربات
+# =========================
+
+def quick_combined(group: str, bot, chat_id: int):
+    cfg = load_config()
+    symbols = cfg[f"symbols_{group}"]
+    interval = group
+    lookback = cfg[f"lookback_{group}"] if f"lookback_{group}" in cfg else 5
+    max_bars = cfg["max_bars"]
+
+    all_images, _, _, cycle_time, _ = run_cycle_once(
+        group, bot, chat_id, symbols, interval, lookback, max_bars, False
+    )
+
+    if not all_images:
+        try:
+            bot.send_message(chat_id, f"⚠️ برای {group} عکس ساخته نشد.")
+        except:
+            pass
+        return
+
+    make_combined_pages(group, bot, chat_id, all_images)
+
+    try:
+        bot.send_message(chat_id, f"📸 عکس‌های تجمیعی ۱۲تایی {group} بر اساس اجرای فوری در زمان {cycle_time} ارسال شد.")
+    except:
+        pass
+
+@bot_1h.message_handler(func=lambda m: m.text == "📸 عکس ۱۲تایی 1h")
+def quick_1h(m):
+    threading.Thread(
+        target=lambda: quick_combined("1h", bot_1h, m.chat.id),
+        daemon=True
+    ).start()
+
+@bot_1h.message_handler(func=lambda m: m.text == "📸 عکس ۱۲تایی 4h")
+def quick_4h(m):
+    threading.Thread(
+        target=lambda: quick_combined("4h", bot_4h or bot_1h, m.chat.id),
+        daemon=True
+    ).start()
+
+@bot_1h.message_handler(func=lambda m: m.text == "📸 عکس ۱۲تایی 1d")
+def quick_1d(m):
+    threading.Thread(
+        target=lambda: quick_combined("1d", bot_1d or bot_1h, m.chat.id),
+        daemon=True
+    ).start()
+
+@bot_1h.message_handler(func=lambda m: m.text == "📸 عکس ۱۲تایی 15m")
+def quick_15m(m):
+    threading.Thread(
+        target=lambda: quick_combined("15m", bot_15m or bot_1h, m.chat.id),
+        daemon=True
+    ).start()
 
 # =========================
 # زمان‌بندی خودکار (بر اساس زمان محلی +۳:۳۰)
