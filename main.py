@@ -1,12 +1,10 @@
 # -*- coding: utf-8 -*-
-# Modu Bazler v7.9 – Multi-bot Plotly (ارتقا یافته با تجمیع آلارم‌ها)
-# اصلاح‌ها:
-# - جلوگیری از اجرای هم‌زمان بات با هندل 409 و فاصلهٔ زمانی بین تلاش‌ها
-# - استفاده از آفست +۳:۳۰ در زمان‌ها (گزارش آلارم، سیکل‌ها، راهنما)
-# - اطمینان از ارسال پیام خلاصهٔ سیکل
-# - تنظیمات پیشرفته با کلید تلگرام، بدون حذف هیچ عملکردی
-# - بررسی ساخت عکس و PDF و لاگ خطا در صورت مشکل
-# - در پایان هر سیکل: ساخت عکس تجمیعی فقط از ارزهای آلارم‌دار (حداکثر ۱۲ در هر صفحه) و ارسال به همان ربات
+# Modu Bazler v7.9 – Multi-bot Plotly (ارتقا یافته)
+# ارتقاها:
+# 1) کلید «بازگشت به منوی اصلی» در همهٔ منوها واقعاً به منوی اصلی برمی‌گرداند
+# 2) تنظیمات پیشرفته: گزینهٔ غیرفعال‌کردن ارسال نمودار برای ارزهای آلارم‌دار (فقط نام و متن آلارم)
+# 3) تنظیمات پیشرفته: فعال/غیرفعال‌کردن عکس تجمیعی ۱۲تایی آلارم‌ها + پیام همراه آن
+# 4) بررسی و اصلاح کد عکس‌های ۱۲تایی (همهٔ نمودارها و فقط آلارم‌دارها)
 
 import os, json, time, threading, datetime as dt
 import requests, numpy as np, pandas as pd
@@ -93,6 +91,11 @@ DEFAULT_CONFIG = {
     "enable_4h":   True,
     "enable_1d":   True,
     "enable_15m":  True,
+
+    # ارتقاها:
+    "show_alarm_charts":      True,  # اگر False باشد، برای ارزهای آلارم‌دار نمودار ارسال نمی‌شود، فقط متن آلارم
+    "make_alarm_combined":    True,  # عکس تجمیعی ۱۲تایی مخصوص آلارم‌ها
+    "alarm_combined_message": True,  # پیام همراه ارسال عکس تجمیعی آلارم‌ها
 }
 
 ALARM_HISTORY = {
@@ -335,6 +338,11 @@ def clear_locks_cmd(m):
 @bot_1h.message_handler(func=lambda m: m.text == "🟣 راهنما")
 def help_menu(m):
     bot_1h.send_message(m.chat.id, HELP_TEXT)
+
+# کلید بازگشت به منوی اصلی (در همهٔ منوها)
+@bot_1h.message_handler(func=lambda m: m.text == "بازگشت به منوی اصلی")
+def back_to_main(m):
+    send_main_menu(m.chat.id)
 
 # =========================
 # مدیریت نمادها
@@ -853,6 +861,9 @@ def system_status(m):
     txt += f"PDF 1d: {'ON' if cfg['make_pdf_1d'] else 'OFF'}\n"
     txt += f"Combined 15m: {'ON' if cfg.get('make_combined_15m', True) else 'OFF'}\n"
     txt += f"Combined all: {'ON' if cfg.get('make_combined_all', True) else 'OFF'}\n"
+    txt += f"show_alarm_charts: {'ON' if cfg.get('show_alarm_charts', True) else 'OFF'}\n"
+    txt += f"make_alarm_combined: {'ON' if cfg.get('make_alarm_combined', True) else 'OFF'}\n"
+    txt += f"alarm_combined_message: {'ON' if cfg.get('alarm_combined_message', True) else 'OFF'}\n"
     txt += f"verbose 1h: {'ON' if cfg['verbose_1h'] else 'OFF'}\n"
     txt += f"verbose 4h: {'ON' if cfg['verbose_4h'] else 'OFF'}\n"
     txt += f"verbose 1d: {'ON' if cfg['verbose_1d'] else 'OFF'}\n"
@@ -884,6 +895,9 @@ def send_advanced_menu(chat_id):
     txt += f"enable 4h: {'ON' if cfg.get('enable_4h', True) else 'OFF'}\n"
     txt += f"enable 1d: {'ON' if cfg.get('enable_1d', True) else 'OFF'}\n"
     txt += f"enable 15m: {'ON' if cfg.get('enable_15m', True) else 'OFF'}\n"
+    txt += f"show_alarm_charts: {'ON' if cfg.get('show_alarm_charts', True) else 'OFF'}\n"
+    txt += f"make_alarm_combined: {'ON' if cfg.get('make_alarm_combined', True) else 'OFF'}\n"
+    txt += f"alarm_combined_message: {'ON' if cfg.get('alarm_combined_message', True) else 'OFF'}\n"
 
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
     kb.row("PDF 1h", "PDF 1d")
@@ -893,7 +907,9 @@ def send_advanced_menu(chat_id):
     kb.row("verbose 1d", "verbose 15m")
     kb.row("enable 1h", "enable 4h")
     kb.row("enable 1d", "enable 15m")
-    kb.row("ریست کامل برنامه", "بازگشت به منوی اصلی")
+    kb.row("show_alarm_charts", "make_alarm_combined")
+    kb.row("alarm_combined_message", "ریست کامل برنامه")
+    kb.row("بازگشت به منوی اصلی")
     bot_1h.send_message(chat_id, txt, reply_markup=kb)
 
 @bot_1h.message_handler(func=lambda m: m.text == "🔴 تنظیمات پیشرفته")
@@ -1002,6 +1018,27 @@ def adv_enable_15m(m):
     save_config(cfg)
     send_advanced_menu(m.chat.id)
 
+@bot_1h.message_handler(func=lambda m: m.text == "show_alarm_charts")
+def adv_show_alarm_charts(m):
+    cfg = load_config()
+    cfg["show_alarm_charts"] = not cfg.get("show_alarm_charts", True)
+    save_config(cfg)
+    send_advanced_menu(m.chat.id)
+
+@bot_1h.message_handler(func=lambda m: m.text == "make_alarm_combined")
+def adv_make_alarm_combined(m):
+    cfg = load_config()
+    cfg["make_alarm_combined"] = not cfg.get("make_alarm_combined", True)
+    save_config(cfg)
+    send_advanced_menu(m.chat.id)
+
+@bot_1h.message_handler(func=lambda m: m.text == "alarm_combined_message")
+def adv_alarm_combined_message(m):
+    cfg = load_config()
+    cfg["alarm_combined_message"] = not cfg.get("alarm_combined_message", True)
+    save_config(cfg)
+    send_advanced_menu(m.chat.id)
+
 @bot_1h.message_handler(func=lambda m: m.text == "ریست کامل برنامه")
 def adv_reset_app(m):
     cfg = reset_config()
@@ -1069,6 +1106,10 @@ def make_alarm_combined_pages(group: str, bot, chat_id: int, alarm_images):
     if not alarm_images:
         return
 
+    cfg = load_config()
+    if not cfg.get("make_alarm_combined", True):
+        return
+
     pages = []
     page  = []
 
@@ -1109,6 +1150,12 @@ def make_alarm_combined_pages(group: str, bot, chat_id: int, alarm_images):
                 bot.send_photo(chat_id, f, caption=f"📄 صفحه آلارم‌ها {idx} – {group}")
         except Exception as e:
             debug_mark(bot, chat_id, 941, f"alarm_combined_send_{group}_{e}")
+
+    if cfg.get("alarm_combined_message", True):
+        try:
+            bot.send_message(chat_id, f"📣 عکس‌های تجمیعی آلارم‌های سیکل {group} ارسال شد.")
+        except Exception as e:
+            debug_mark(bot, chat_id, 942, f"alarm_combined_msg_{group}_{e}")
 
 # =========================
 # اجرای سیکل‌ها
@@ -1182,6 +1229,18 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
             else:
                 if alarms:
                     send_this_chart = True
+
+            # اگر show_alarm_charts خاموش باشد، برای ارزهای آلارم‌دار نمودار ارسال نمی‌شود
+            if alarms and not cfg.get("show_alarm_charts", True):
+                send_this_chart = False
+                # فقط متن آلارم برای این نماد ارسال شود
+                try:
+                    txt = f"{sym} ({group}) – آلارم‌ها:\n"
+                    for a in alarms:
+                        txt += f"- {a}\n"
+                    bot.send_message(chat_id, txt)
+                except Exception as e:
+                    debug_mark(bot, chat_id, 913, f"alarm_text_only_{group}_{e}")
 
             if send_this_chart and info["png_path"]:
                 caption = f"{sym} ({group})"
@@ -1263,7 +1322,6 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str,
     except Exception as e:
         debug_mark(bot, chat_id, 909, f"cycle_summary_send_{group}_{e}")
 
-    # ارسال عکس‌های تجمیعی مخصوص ارزهای آلارم‌دار
     if alarm_images:
         make_alarm_combined_pages(group, bot, chat_id, alarm_images)
 
