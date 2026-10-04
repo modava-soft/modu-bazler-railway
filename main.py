@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Modu Bazler v7.9 – نسخهٔ یکپارچه اصلاح‌شده نهایی
+# Modu Bazler v7.9 – نسخهٔ یکپارچه اصلاح‌شده نهایی با تنظیم تعداد نمودار تجمیعی و جلوگیری از تداخل سیکل‌ها
 
 import os, json, time, threading, datetime as dt
 import requests, numpy as np, pandas as pd
@@ -86,6 +86,9 @@ DEFAULT_CONFIG = {
     "show_alarm_charts":      True,
     "make_alarm_combined":    True,
     "alarm_combined_message": True,
+
+    # تعداد نمودار در هر صفحهٔ عکس تجمیعی – مضربی از ۲
+    "combined_page_size": 6,
 }
 
 ALARM_HISTORY = {"1h": [], "4h": [], "1d": [], "15m": []}
@@ -126,7 +129,10 @@ def load_config() -> dict:
         return DEFAULT_CONFIG.copy()
     try:
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
+            cfg = json.load(f)
+        if "combined_page_size" not in cfg:
+            cfg["combined_page_size"] = DEFAULT_CONFIG["combined_page_size"]
+        return cfg
     except:
         return DEFAULT_CONFIG.copy()
 
@@ -220,10 +226,10 @@ Modu Bazler v7.9 – راهنما:
 - چک یک نماد
 - اجرای دستی 1h / فوری 4h / فوری 1d / فوری 15m
 - اجرای چرخه‌ها (همهٔ تایم‌فریم‌ها)
-- عکس ۱۲تایی 1h / 4h / 1d / 15m
+- عکس تجمیعی (تعداد نمودار قابل تنظیم، مضربی از ۲)
 - مدیریت نمادها
 - تنظیم آلارم‌ها و گزارش آلارم‌ها (با فلش رنگی برای آخرین آلارم‌ها)
-- تنظیمات پیشرفته (PDF، Combined، نمایش نمودار آلارم‌دار، عکس تجمیعی آلارم‌ها)
+- تنظیمات پیشرفته (PDF، Combined، نمایش نمودار آلارم‌دار، عکس تجمیعی آلارم‌ها، تعداد نمودار در هر صفحه)
 - وضعیت سیستم و وضعیت چرخه‌ها
 - ریست برنامه و رفع خطای قفل‌ها
 
@@ -317,49 +323,6 @@ def manage_1d(m):
 @bot_1h.message_handler(func=lambda m: m.text == "🟢 مدیریت نمادهای 15m")
 def manage_15m(m):
     show_symbol_menu(m.chat.id, "15m")
-
-@bot_1h.message_handler(func=lambda m: m.text.startswith("افزودن نماد به "))
-def add_symbol_any(m):
-    group = m.text.split()[-1]
-    msg = bot_1h.send_message(m.chat.id, "نماد را وارد کنید:")
-    bot_1h.register_next_step_handler(msg, lambda mm: add_symbol_step(mm, group))
-
-def add_symbol_step(m, group):
-    sym = m.text.strip().upper()
-    cfg = load_config()
-    symbols = get_symbols(cfg, group)
-    if sym not in symbols:
-        symbols.append(sym)
-        set_symbols(cfg, group, symbols)
-        bot_1h.send_message(m.chat.id, f"{sym} اضافه شد.")
-    else:
-        bot_1h.send_message(m.chat.id, f"{sym} قبلاً وجود دارد.")
-    show_symbol_menu(m.chat.id, group)
-
-@bot_1h.message_handler(func=lambda m: m.text.startswith("حذف نماد از "))
-def remove_symbol_any(m):
-    group = m.text.split()[-1]
-    msg = bot_1h.send_message(m.chat.id, "نماد را وارد کنید:")
-    bot_1h.register_next_step_handler(msg, lambda mm: remove_symbol_step(mm, group))
-
-def remove_symbol_step(m, group):
-    sym = m.text.strip().upper()
-    cfg = load_config()
-    symbols = get_symbols(cfg, group)
-    if sym in symbols:
-        symbols.remove(sym)
-        set_symbols(cfg, group, symbols)
-        bot_1h.send_message(m.chat.id, f"{sym} حذف شد.")
-    else:
-        bot_1h.send_message(m.chat.id, f"{sym} وجود ندارد.")
-    show_symbol_menu(m.chat.id, group)
-
-@bot_1h.message_handler(func=lambda m: m.text.startswith("نمایش نمادهای "))
-def show_symbols_any(m):
-    group = m.text.split()[-1]
-    cfg = load_config()
-    symbols = get_symbols(cfg, group)
-    bot_1h.send_message(m.chat.id, ", ".join(symbols))
 
 @bot_1h.message_handler(func=lambda m: m.text == "🟡 تنظیم آلارم‌ها")
 def alarm_settings(m):
@@ -746,6 +709,7 @@ def system_status(m):
     txt += f"نمادهای 1d: {len(cfg['symbols_1d'])}\n"
     txt += f"نمادهای 15m: {len(cfg['symbols_15m'])}\n"
     txt += f"bars_per_chart: {cfg.get('bars_per_chart', 90)}\n"
+    txt += f"combined_page_size: {cfg.get('combined_page_size', 6)}\n"
     txt += f"PDF 1h: {'ON' if cfg['make_pdf_1h'] else 'OFF'}\n"
     txt += f"PDF 1d: {'ON' if cfg['make_pdf_1d'] else 'OFF'}\n"
     txt += f"Combined 15m: {'ON' if cfg.get('make_combined_15m', True) else 'OFF'}\n"
@@ -764,6 +728,7 @@ def system_status(m):
     txt += f"lock_timeout_sec: {cfg.get('lock_timeout_sec', 600)}\n"
     bot_1h.send_message(m.chat.id, txt)
 
+
 def send_advanced_menu(chat_id):
     cfg = load_config()
     txt = "تنظیمات پیشرفته:\n"
@@ -772,6 +737,7 @@ def send_advanced_menu(chat_id):
     txt += f"Combined 15m: {'ON' if cfg.get('make_combined_15m', True) else 'OFF'}\n"
     txt += f"Combined all: {'ON' if cfg.get('make_combined_all', True) else 'OFF'}\n"
     txt += f"bars_per_chart: {cfg.get('bars_per_chart', 90)}\n"
+    txt += f"combined_page_size: {cfg.get('combined_page_size', 6)} (مضربی از ۲)\n"
     txt += f"verbose 1h: {'ON' if cfg['verbose_1h'] else 'OFF'}\n"
     txt += f"verbose 4h: {'ON' if cfg['verbose_4h'] else 'OFF'}\n"
     txt += f"verbose 1d: {'ON' if cfg['verbose_1d'] else 'OFF'}\n"
@@ -787,6 +753,7 @@ def send_advanced_menu(chat_id):
     kb.row("PDF 1h", "PDF 1d")
     kb.row("Combined 15m", "Combined all")
     kb.row("کندل +30", "کندل -30")
+    kb.row("تعداد نمودار +2", "تعداد نمودار -2")
     kb.row("verbose 1h", "verbose 4h")
     kb.row("verbose 1d", "verbose 15m")
     kb.row("enable 1h", "enable 4h")
@@ -843,6 +810,30 @@ def adv_bars_minus(m):
     cfg = load_config()
     bars = cfg.get("bars_per_chart", 90) - 30
     cfg["bars_per_chart"] = max(30, bars)
+    save_config(cfg)
+    send_advanced_menu(m.chat.id)
+
+@bot_1h.message_handler(func=lambda m: m.text == "تعداد نمودار +2")
+def adv_page_plus(m):
+    cfg = load_config()
+    size = cfg.get("combined_page_size", 6) + 2
+    if size > 24:
+        size = 24
+    if size % 2 != 0:
+        size += 1
+    cfg["combined_page_size"] = max(2, size)
+    save_config(cfg)
+    send_advanced_menu(m.chat.id)
+
+@bot_1h.message_handler(func=lambda m: m.text == "تعداد نمودار -2")
+def adv_page_minus(m):
+    cfg = load_config()
+    size = cfg.get("combined_page_size", 6) - 2
+    if size < 2:
+        size = 2
+    if size % 2 != 0:
+        size -= 1
+    cfg["combined_page_size"] = max(2, size)
     save_config(cfg)
     send_advanced_menu(m.chat.id)
 
@@ -934,10 +925,12 @@ def adv_reset_app(m):
     send_advanced_menu(m.chat.id)
 
 def make_combined_pages(group: str, bot, chat_id: int, image_paths):
+    cfg = load_config()
+    page_size = cfg.get("combined_page_size", 6)
     if not image_paths:
         return
     try:
-        bot.send_message(chat_id, f"📸 شروع ساخت عکس ۱۲تایی {group}...")
+        bot.send_message(chat_id, f"📸 شروع ساخت عکس تجمیعی {group} با {page_size} نمودار در هر صفحه...")
     except:
         pass
 
@@ -949,7 +942,7 @@ def make_combined_pages(group: str, bot, chat_id: int, image_paths):
         if not os.path.exists(img):
             continue
         page.append(img)
-        if len(page) == 12:
+        if len(page) == page_size:
             pages.append(page)
             page = []
     if page:
@@ -975,12 +968,12 @@ def make_combined_pages(group: str, bot, chat_id: int, image_paths):
         plt.close()
         try:
             with open(out_path, "rb") as f:
-                bot.send_photo(chat_id, f, caption=f"📄 صفحه {idx} – عکس ۱۲تایی {group}")
+                bot.send_photo(chat_id, f, caption=f"📄 صفحه {idx} – عکس تجمیعی {group}")
         except Exception as e:
             debug_mark(bot, chat_id, 931, f"combined_send_{group}_{e}")
 
     try:
-        bot.send_message(chat_id, f"✅ ساخت و ارسال عکس‌های ۱۲تایی {group} پایان یافت.")
+        bot.send_message(chat_id, f"✅ ساخت و ارسال عکس‌های تجمیعی {group} پایان یافت.")
     except:
         pass
 
@@ -990,8 +983,9 @@ def make_alarm_combined_pages(group: str, bot, chat_id: int, alarm_images):
     cfg = load_config()
     if not cfg.get("make_alarm_combined", True):
         return
+    page_size = cfg.get("combined_page_size", 6)
     try:
-        bot.send_message(chat_id, f"📸 شروع ساخت عکس ۱۲تایی آلارم‌ها {group}...")
+        bot.send_message(chat_id, f"📸 شروع ساخت عکس تجمیعی آلارم‌ها {group} با {page_size} نمودار در هر صفحه...")
     except:
         pass
 
@@ -1003,7 +997,7 @@ def make_alarm_combined_pages(group: str, bot, chat_id: int, alarm_images):
         if not os.path.exists(img):
             continue
         page.append(img)
-        if len(page) == 12:
+        if len(page) == page_size:
             pages.append(page)
             page = []
     if page:
@@ -1039,6 +1033,7 @@ def make_alarm_combined_pages(group: str, bot, chat_id: int, alarm_images):
         except Exception as e:
             debug_mark(bot, chat_id, 942, f"alarm_combined_msg_{group}_{e}")
 
+
 def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
                    lookback_days: int, max_bars: int, make_pdf: bool):
 
@@ -1054,11 +1049,14 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
     cycle_items = []
 
     if not lock.acquire(blocking=False):
-        debug_mark(bot, chat_id, 902, f"run_cycle_lock_busy_{group}")
         try:
-            bot.send_message(chat_id, f"⚠️ چرخه {group} در حال اجراست، اجرای جدید انجام نشد.")
+            bot.send_message(
+                chat_id,
+                f"⚠️ سیکل {group} در حال اجراست — اجرای جدید در {cycle_time} انجام نشد."
+            )
         except:
             pass
+        debug_mark(bot, chat_id, 902, f"run_cycle_lock_busy_{group}")
         return [], [], 0, cycle_time, cycle_items
 
     pdf          = None
@@ -1354,7 +1352,7 @@ def quick_combined(group: str, bot, chat_id: int):
     lookback = cfg[f"lookback_{group}"] if f"lookback_{group}" in cfg else 5
     max_bars = cfg["max_bars"]
     try:
-        bot.send_message(chat_id, f"📸 شروع ساخت عکس ۱۲تایی فوری {group}...")
+        bot.send_message(chat_id, f"📸 شروع ساخت عکس تجمیعی فوری {group}...")
     except:
         pass
     all_images, _, _, cycle_time, _ = run_cycle_once(
@@ -1362,13 +1360,13 @@ def quick_combined(group: str, bot, chat_id: int):
     )
     if not all_images:
         try:
-            bot.send_message(chat_id, f"⚠️ برای {group} عکس ساخته نشد.")
+            bot.send_message(chat_id, f"⚠️ برای {group} عکس ساخته نشد یا سیکل در حال اجرا بود.")
         except:
             pass
         return
     make_combined_pages(group, bot, chat_id, all_images)
     try:
-        bot.send_message(chat_id, f"✅ عکس‌های ۱۲تایی فوری {group} بر اساس اجرای در زمان {cycle_time} ارسال شد.")
+        bot.send_message(chat_id, f"✅ عکس‌های تجمیعی فوری {group} بر اساس اجرای در زمان {cycle_time} ارسال شد.")
     except:
         pass
 
