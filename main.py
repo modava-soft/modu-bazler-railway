@@ -554,7 +554,7 @@ def create_plotly_chart(symbol: str, interval: str, lookback_days: int, max_bars
             xref="paper", yref="paper",
             x=0.5, y=1.05,
             showarrow=False,
-            font=dict(size=30, color="black")
+            font=dict(size=90, color="black")
         )
         fig.update_yaxes(side="right", showgrid=True)
     except Exception:
@@ -986,7 +986,7 @@ def make_combined_pages(group: str, bot, chat_id: int, image_paths):
             ax.axis("off")
         out_path = os.path.join(CHARTS_DIR, f"combined_{group}_{idx}.jpg")
         plt.tight_layout()
-        plt.savefig(out_path, dpi=120, format="jpg")
+        plt.savefig(out_path, dpi=200, format="jpg")
         plt.close()
         try:
             with open(out_path, "rb") as f:
@@ -1046,7 +1046,7 @@ def make_alarm_combined_pages(group: str, bot, chat_id: int, alarm_images):
             ax.axis("off")
         out_path = os.path.join(CHARTS_DIR, f"alarm_combined_{group}_{idx}.jpg")
         plt.tight_layout()
-        plt.savefig(out_path, dpi=120, format="jpg")
+        plt.savefig(out_path, dpi=200, format="jpg")
         plt.close()
         try:
             with open(out_path, "rb") as f:
