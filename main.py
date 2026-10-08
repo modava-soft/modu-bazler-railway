@@ -992,7 +992,7 @@ def make_combined_pages(group: str, bot, chat_id: int, image_paths):
             ax.axis("off")
         out_path = os.path.join(CHARTS_DIR, f"combined_{group}_{idx}.jpg")
         plt.tight_layout()
-        plt.savefig(out_path, =200, format="jpg")
+        plt.savefig(out_path, dpi=300, format="jpg")
         plt.close()
         try:
             with open(out_path, "rb") as f:
