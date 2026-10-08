@@ -39,12 +39,18 @@ ALL_SYMBOLS_100 = [
     "SXPUSDT","TRBUSDT","UMAUSDT","WAVESUSDT","YFIUSDT","ZRXUSDT","BELUSDT","COTIUSDT","DODOUSDT","FETUSDT",
     "GRTUSDT","HNTUSDT","HOTUSDT","IOSTUSDT","KSMUSDT","OGNUSDT","RENUSDT","RIFUSDT","SCRTUSDT","XVGUSDT"
 ]
-
+ALL_SYMBOLS_15m = [
+    "BTCUSDT","ETHUSDT","BNBUSDT","XRPUSDT","ADAUSDT","SOLUSDT","DOGEUSDT","TRXUSDT","LINKUSDT",
+    "LTCUSDT","DOTUSDT","AVAXUSDT","UNIUSDT","ATOMUSDT","XLMUSDT","ETCUSDT","OPUSDT",
+    "AAVEUSDT","ALGOUSDT","BCHUSDT","CAKEUSDT","CHZUSDT","CRVUSDT","DYDXUSDT","EGLDUSDT",
+    "GALAUSDT","INJUSDT","KAVAUSDT","NEARUSDT","MANAUSDT","MASKUSDT","MINAUSDT","PEPEUSDT",
+    "XMRUSDT","ZECUSDT","PENDLEUSDT","WAVESUSDT","HOTUSDT"
+]
 DEFAULT_CONFIG = {
     "symbols_1h":   ALL_SYMBOLS_100.copy(),
     "symbols_4h":   ALL_SYMBOLS_100.copy(),
     "symbols_1d":   ALL_SYMBOLS_100.copy(),
-    "symbols_15m":  ALL_SYMBOLS_100[:75],
+    "symbols_15m":  ALL_SYMBOLS_15m.copy(),
 
     "lookback_1h":  5,
     "lookback_4h":  15,
@@ -986,7 +992,7 @@ def make_combined_pages(group: str, bot, chat_id: int, image_paths):
             ax.axis("off")
         out_path = os.path.join(CHARTS_DIR, f"combined_{group}_{idx}.jpg")
         plt.tight_layout()
-        plt.savefig(out_path, dpi=200, format="jpg")
+        plt.savefig(out_path, =200, format="jpg")
         plt.close()
         try:
             with open(out_path, "rb") as f:
@@ -1046,7 +1052,7 @@ def make_alarm_combined_pages(group: str, bot, chat_id: int, alarm_images):
             ax.axis("off")
         out_path = os.path.join(CHARTS_DIR, f"alarm_combined_{group}_{idx}.jpg")
         plt.tight_layout()
-        plt.savefig(out_path, dpi=200, format="jpg")
+        plt.savefig(out_path, dpi=300, format="jpg")
         plt.close()
         try:
             with open(out_path, "rb") as f:
