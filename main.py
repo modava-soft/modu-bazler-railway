@@ -1468,7 +1468,7 @@ def scheduler_loop():
                     daemon=True
                 ).start()
 
-            if minute == 7 and hour in [2,6,10,14,18,22] and cfg.get("enable_4h", True):
+            if minute == 35 and hour in [2,6,10,14,18,22] and cfg.get("enable_4h", True):
                 ch = cfg.get("chat_id_4h") or cfg.get("chat_id_1h")
                 if ch:
                     threading.Thread(
@@ -1502,7 +1502,7 @@ def scheduler_loop():
                         daemon=True
                     ).start()
 
-            if minute % 15 == 0 and cfg.get("enable_15m", True):
+            if minute % 15 == 1 and cfg.get("enable_15m", True):
                 ch = cfg.get("chat_id_15m") or cfg.get("chat_id_1h")
                 if ch:
                     threading.Thread(
