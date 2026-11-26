@@ -432,6 +432,7 @@ def fetch_ohlc(symbol: str, interval: str, lookback_days: int, max_bars: int) ->
     except Exception:
         #debug_mark(bot_1h, ADMIN_CHAT, 801, "fetch_ohlc_binance")
         #df["t"]=[]
+        r=1
     try:
         sym = symbol.replace("USDT", "-USDT")
         end = int(now_utc().timestamp())
