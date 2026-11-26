@@ -98,6 +98,7 @@ DEFAULT_CONFIG = {
     "show_alarm_charts":      True,
     "make_alarm_combined":    True,
     "alarm_combined_message": True,
+    "alarm_combined_message_detail": True
 
     # تعداد نمودار در هر صفحهٔ عکس تجمیعی – مضربی از ۲
     "combined_page_size": 6,
@@ -734,6 +735,7 @@ def system_status(m):
     txt += f"show_alarm_charts: {'ON' if cfg.get('show_alarm_charts', True) else 'OFF'}\n"
     txt += f"make_alarm_combined: {'ON' if cfg.get('make_alarm_combined', True) else 'OFF'}\n"
     txt += f"alarm_combined_message: {'ON' if cfg.get('alarm_combined_message', True) else 'OFF'}\n"
+    txt += f"alarm_combined_message_detail: {'ON' if cfg.get('alarm_combined_message_detail', True) else 'OFF'}\n"
     txt += f"verbose 1h: {'ON' if cfg['verbose_1h'] else 'OFF'}\n"
     txt += f"verbose 4h: {'ON' if cfg['verbose_4h'] else 'OFF'}\n"
     txt += f"verbose 1d: {'ON' if cfg['verbose_1d'] else 'OFF'}\n"
@@ -765,6 +767,7 @@ def send_advanced_menu(chat_id):
     txt += f"show_alarm_charts: {'ON' if cfg.get('show_alarm_charts', True) else 'OFF'}\n"
     txt += f"make_alarm_combined: {'ON' if cfg.get('make_alarm_combined', True) else 'OFF'}\n"
     txt += f"alarm_combined_message: {'ON' if cfg.get('alarm_combined_message', True) else 'OFF'}\n"
+    txt += f"alarm_combined_message_detail: {'ON' if cfg.get('alarm_combined_message_detail', True) else 'OFF'}\n"
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
     kb.row("PDF 1h", "PDF 1d")
     kb.row("Combined 15m", "Combined all")
@@ -776,7 +779,7 @@ def send_advanced_menu(chat_id):
     kb.row("enable 1d", "enable 15m")
     kb.row("show_alarm_charts", "make_alarm_combined")
     kb.row("alarm_combined_message", "ریست کامل برنامه")
-    kb.row("بازگشت به منوی اصلی")
+    kb.row("alarm_combined_message_detail","بازگشت به منوی اصلی")
     bot_1h.send_message(chat_id, txt, reply_markup=kb)
 
 @bot_1h.message_handler(func=lambda m: m.text == "🔴 تنظیمات پیشرفته")
@@ -927,6 +930,12 @@ def adv_make_alarm_combined(m):
 def adv_alarm_combined_message(m):
     cfg = load_config()
     cfg["alarm_combined_message"] = not cfg.get("alarm_combined_message", True)
+    save_config(cfg)
+    send_advanced_menu(m.chat.id)
+@bot_1h.message_handler(func=lambda m: m.text == "alarm_combined_message_detail")
+def adv_alarm_combined_message_detail(m):
+    cfg = load_config()
+    cfg["alarm_combined_message_detail"] = not cfg.get("alarm_combined_message_detail", True)
     save_config(cfg)
     send_advanced_menu(m.chat.id)
 
@@ -1111,12 +1120,12 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
     all_images   = []
     alarm_images = []
     alarms_count = 0
-
+           
     try:
         unique_symbols = list(dict.fromkeys(symbols))
         total     = len(unique_symbols)
         try:
-            bot.send_message(
+            if cfg.get("alarm_combined_message_detail", True): bot.send_message(
                 chat_id,
                 f"🚀 شروع اجرای چرخه {group} در {cycle_time} (محلی +۳:۳۰) – تعداد نمادها: {total}"
             )
@@ -1202,7 +1211,7 @@ def run_cycle_once(group: str, bot, chat_id: int, symbols: list, interval: str,
     finally:
         lock.release()
         try:
-            bot.send_message(chat_id, f"✅ پایان اجرای چرخه {group} در {cycle_time}")
+            if cfg.get("alarm_combined_message_detail", True): bot.send_message(chat_id, f"✅ پایان اجرای چرخه {group} در {cycle_time}")
         except:
             pass
 
@@ -1234,7 +1243,7 @@ def run_cycle(group: str, bot, chat_id: int, symbols: list, interval: str,
         f"📣 تعداد کل آلارم‌ها: {total_alarms}"
     )
     try:
-        bot.send_message(chat_id, summary)
+        if cfg.get("alarm_combined_message_detail", True): bot.send_message(chat_id, summary)
     except Exception as e:
         debug_mark(bot, chat_id, 909, f"cycle_summary_send_{group}_{e}")
 
