@@ -98,10 +98,10 @@ DEFAULT_CONFIG = {
     "show_alarm_charts":      True,
     "make_alarm_combined":    True,
     "alarm_combined_message": True,
-    "alarm_combined_message_detail": True
+    "alarm_combined_message_detail": True,
 
     # تعداد نمودار در هر صفحهٔ عکس تجمیعی – مضربی از ۲
-    "combined_page_size": 6,
+    "combined_page_size": 4,
 }
 
 ALARM_HISTORY = {"1h": [], "4h": [], "1d": [], "15m": []}
