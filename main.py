@@ -40,12 +40,17 @@ ALL_SYMBOLS_100 = [
     "GRTUSDT","HNTUSDT","HOTUSDT","IOSTUSDT","KSMUSDT","OGNUSDT","RENUSDT","RIFUSDT","SCRTUSDT","XVGUSDT"
 ]
 ALL_SYMBOLS_15m = [
+    "BTCUSDT","ETHUSDT","LINKUSDT","PAXGUSDT","BCHUSDT","NEARUSDT"
+]
+ALL_SYMBOLS_60m = [
     "BTCUSDT","ETHUSDT","BNBUSDT","XRPUSDT","ADAUSDT","SOLUSDT","DOGEUSDT","TRXUSDT","LINKUSDT",
     "LTCUSDT","DOTUSDT","ETCUSDT","OPUSDT","PAXGUSDT",
     "BCHUSDT","CAKEUSDT","KAVAUSDT","NEARUSDT","ZECUSDT","PENDLEUSDT","WAVESUSDT","WLDUSDT"
 ]
+
+
 DEFAULT_CONFIG = {
-    "symbols_1h":   ALL_SYMBOLS_100.copy(),
+    "symbols_1h":   ALL_SYMBOLS_60m.copy(),
     "symbols_4h":   ALL_SYMBOLS_100.copy(),
     "symbols_1d":   ALL_SYMBOLS_100.copy(),
     "symbols_15m":  ALL_SYMBOLS_15m.copy(),
@@ -425,8 +430,8 @@ def fetch_ohlc(symbol: str, interval: str, lookback_days: int, max_bars: int) ->
         df.set_index("t", inplace=True)
         return df
     except Exception:
-        debug_mark(bot_1h, ADMIN_CHAT, 801, "fetch_ohlc_binance")
-
+        #debug_mark(bot_1h, ADMIN_CHAT, 801, "fetch_ohlc_binance")
+        df["t"]=[]
     try:
         sym = symbol.replace("USDT", "-USDT")
         end = int(now_utc().timestamp())
